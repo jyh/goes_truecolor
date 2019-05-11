@@ -66,8 +66,9 @@ class build(_build):  # pylint: disable=invalid-name
 #
 #     ['pip', 'install', 'my_package'],
 CUSTOM_COMMANDS = [
-    'apt-get update'.split(),
-    'apt-get --assume-yes install python-tk'.split()]
+    # 'apt-get update'.split(),
+    # 'apt-get --assume-yes install python-tk'.split(),
+]
 
 
 class CustomCommands(setuptools.Command):
@@ -104,10 +105,15 @@ class CustomCommands(setuptools.Command):
 # so this dependency will not trigger anything to be installed unless a version
 # restriction is specified.
 REQUIRED_PACKAGES = [
-    'netcdf',
-    'xarray',
-    'pyresample',
-    'google-cloud-storage']
+  'absl-py',
+  'dateparser',
+  'netcdf4',
+  'xarray',
+  'pyresample',
+  'google-cloud-storage',
+  'scikit-image',
+  'tensorflow',
+  'urllib']
 
 
 setuptools.setup(
