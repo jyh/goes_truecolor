@@ -67,8 +67,7 @@ GoesFile = collections.namedtuple('GoesFile', [
 ])
 
 
-def _parse_filename(filename):
-  # type: (Text) -> GoesFile
+def _parse_filename(filename: Text) -> GoesFile:
   """Convert a filename to a GoesFile description.
 
   Args:
@@ -100,8 +99,7 @@ def _parse_filename(filename):
                   creation_date)
 
 
-def resample_world_img(world_img, new_grid):
-  # type: (np.ndarray, pyresample.geometry.AreaDefinition) -> np.ndarray
+def resample_world_img(world_img: np.ndarray, new_grid: pyresample.geometry.AreaDefinition) -> np.ndarray:
   """Resample an image of the world to fit a pyresample area.
 
   Args:
@@ -122,8 +120,7 @@ def resample_world_img(world_img, new_grid):
       radius_of_influence=50000)
 
 
-def goes_area_definition(md, shape):
-  # type: (Dict[Text, Any], Optional[Tuple[int, int]]) -> pyresample.geometry.AreaDefinition
+def goes_area_definition(md: Dict[Text, Any], shape: Optional[Tuple[int, int]]) -> pyresample.geometry.AreaDefinition:
   """Get the area definition for the satellite image.
 
   Args:
@@ -164,8 +161,7 @@ def goes_area_definition(md, shape):
   return grid
 
 
-def goes_to_daytime_mask(world_img, ref):
-  # type: (np.ndarray, Dict[int, Tuple[np.ndarray, Any]]) -> np.ndarray
+def goes_to_daytime_mask(world_img: np.ndarray, ref: Dict[int, Tuple[np.ndarray, Any]]) -> np.ndarray:
   """Convert GOES channels to a truecolor image based on daytime channels.
 
   Args:
@@ -207,9 +203,8 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
   # pylint: disable=too-many-instance-attributes
   def __init__(
       self,
-      project_id, goes_bucket_name = GOES_BUCKET,
-      key = 'Rad', shape = (512, 512)):
-    # type: (Text, Text, Text, Tuple[int, int])
+      project_id: Text, goes_bucket_name: Text = GOES_BUCKET,
+      key: Text = 'Rad', shape: Tuple[int, int] = (512, 512)):
     """Create a GoesReader.
 
     Args:
@@ -261,8 +256,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       channel_map[f.channel] = b
     return sorted(channels.items())
 
-  def _resample_image(self, nc):
-    # type: (xarray.DataArray) -> np.ndarray
+  def _resample_image(self, nc: xarray.DataArray) -> np.ndarray:
     """Extract an image from the GOES data."""
     kappa0 = nc['kappa0'].data
     if np.isnan(kappa0):
@@ -271,7 +265,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     img = img.astype(np.float32) * kappa0
     img = np.nan_to_num(img)
     img = np.minimum(1, np.maximum(0, img))
-    img = skimage.transform.resize(img, self.shape, mode='reflect')
+    img = skimage.transform.resize(img, self.shape, mode='reflect', anti_aliasing=True)
     return (img * 255).astype(np.uint8)
 
   def _load_image(self, blob):
@@ -291,8 +285,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
         self.cache[bid] = v
         return v
 
-  def load_channel_images(self, t, channels):
-    # type: (datetime.datetime, List[int]) -> Dict[int, Tuple[np.ndarray, Dict[Text, Any]]]
+  def load_channel_images(self, t: datetime.datetime, channels: List[int]) -> Dict[int, Tuple[np.ndarray, Dict[Text, Any]]]:
     """Load the GOES channels.
 
     Args:
@@ -315,8 +308,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       imgs[c] = (img, md)
     return imgs
 
-  def load_channels(self, t, channels):
-    # type: (datetime.datetime, List[int]) -> np.ndarray
+  def load_channels(self, t: datetime.datetime, channels: List[int]) -> np.ndarray:
     """Load the GOES channels and flatten them into a multi-channel image.
 
     Args:
@@ -333,8 +325,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       imgs.append(img)
     return np.stack(imgs, axis=-1)
 
-  def load_world_img_from_url(self, world_map, grid):
-    # type: (Text, pyresample.geometry.AreaDefinition) -> np.ndarray:
+  def load_world_img_from_url(self, world_map: Text, grid: pyresample.geometry.AreaDefinition) -> np.ndarray:
     """Fetch the world map image from a URL.
 
     Args:
@@ -347,14 +338,13 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     img = self.world_imgs.get(world_map)
     if img is None:
       with mktemp(dir=self.tmp_dir, suffix='.jpg') as infile:
-        urllib.urlretrieve(world_map, infile)
+        urllib.request.urlretrieve(world_map, infile)
         img = skimage.io.imread(infile)
         img = resample_world_img(img, grid)
         self.world_imgs[world_map] = img
     return img
 
-  def truecolor_image(self, world_map, t):
-    # type: (Text, datetime.datetime) -> np.ndarray
+  def truecolor_image(self, world_map: Text, t: datetime.datetime) -> np.ndarray:
     """Construct a truecolor image for the specified time.
 
     Args:

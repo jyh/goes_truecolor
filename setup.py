@@ -112,8 +112,7 @@ REQUIRED_PACKAGES = [
   'pyresample',
   'google-cloud-storage',
   'scikit-image',
-  'tensorflow',
-  'urllib']
+  'tensorflow']
 
 
 setuptools.setup(

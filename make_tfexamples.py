@@ -4,7 +4,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from typing import Text
+from typing import Generator, Text
 
 import datetime
 import dateutil
@@ -76,9 +76,8 @@ class CreateTFExamples(beam.DoFn):
   """Client for creating TFExamples from GOES-16 images."""
 
   def __init__(
-      self, project_id, goes_bucket_name,
-      image_size, tile_size, world_map):
-    # type: (Text, Text, Text, int, int, Text)
+      self, project_id: Text, goes_bucket_name: Text,
+      image_size: int, tile_size: int, world_map: Text):
     """Create an example generator.
 
     Args:
@@ -97,8 +96,7 @@ class CreateTFExamples(beam.DoFn):
     self.reader = None
     self.images_counter = Metrics.counter(self.__class__, 'images')
 
-  def get_reader(self):
-    # type: () -> goeslib.goes_reader.GoesReader:
+  def get_reader(self) -> goeslib.goes_reader.GoesReader:
     """Return a GoesReader for processing the input."""
     # pylint: disable=reimported,redefined-outer-name
     import goeslib.goes_reader
@@ -109,7 +107,7 @@ class CreateTFExamples(beam.DoFn):
     return self.reader
 
   # pylint: disable=arguments-differ
-  def process(self, t):
+  def process(self, t: datetime.datetime) -> Generator[bytes, None, None]:
     # Fetch the truecolor and IR images.
     reader = self.get_reader()
     logging.info('creating truecolor image for %s', t)
