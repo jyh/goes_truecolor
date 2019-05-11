@@ -13,13 +13,13 @@
 .PHONY: typecheck lint run_local run_dataflow
 
 typecheck:
-	pytype -P . make_tfexamples.py
+	pytype -P . truecolor/preproc/make_truecolor_examples.py
 
 lint:
-	pylint *.py */*.py
+	pylint truecolor/preproc/make_truecolor_examples.py
 
 run_local:
-	python make_tfexamples.py
+	python -m truecolor.preproc.make_truecolor_examples
 
 run_dataflow:
-	python make_tfexamples.py --runner=DataflowRunner
+	python -m truecolor.preproc.make_truecolor_examples --runner=DataflowRunner
