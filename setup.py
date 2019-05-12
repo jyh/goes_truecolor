@@ -22,6 +22,7 @@ then installed in the workers when they start running.
 This behavior is triggered by specifying the --setup_file command line option
 when running the workflow for remote execution.
 """
+from __future__ import absolute_import
 from __future__ import print_function
 
 import subprocess
@@ -112,11 +113,11 @@ REQUIRED_PACKAGES = [
   'pyresample',
   'google-cloud-storage',
   'scikit-image',
-  'tensorflow']
-
+  'tensorflow',
+]
 
 setuptools.setup(
-    name='goes-truecolor',
+    name='truecolor',
     version='0.0.1',
     description='Extract truecolor training set.',
     install_requires=REQUIRED_PACKAGES,

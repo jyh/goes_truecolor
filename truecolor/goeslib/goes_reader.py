@@ -274,9 +274,12 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     if bid in self.cache:
       return self.cache[bid]
     with mktemp(dir=self.tmp_dir, suffix='.nc') as infile:
+      logging.info('downloading %s', bid)
       blob.download_to_filename(infile)
+      logging.info('downloaded %s', bid)
       with xarray.open_dataset(infile) as nc:
         img = self._resample_image(nc)
+        logging.info('resampled %s', bid)
         md = {}
         for k in METADATA_KEYS:
           if k in nc.data_vars or k in nc.coords:
@@ -308,23 +311,6 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       imgs[c] = (img, md)
     return imgs
 
-  def load_channels(self, t: datetime.datetime, channels: List[int]) -> np.ndarray:
-    """Load the GOES channels and flatten them into a multi-channel image.
-
-    Args:
-      t: the observation time.
-      channels: the channels to load.
-
-    Returns:
-      A numpy array containing the channel data.
-    """
-    table = self.load_channel_images(t, channels)
-    imgs = []
-    for c in channels:
-      img, _ = table[c]
-      imgs.append(img)
-    return np.stack(imgs, axis=-1)
-
   def load_world_img_from_url(self, world_map: Text, grid: pyresample.geometry.AreaDefinition) -> np.ndarray:
     """Fetch the world map image from a URL.
 
@@ -344,18 +330,38 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
         self.world_imgs[world_map] = img
     return img
 
-  def truecolor_image(self, world_map: Text, t: datetime.datetime) -> np.ndarray:
+  def truecolor_image(self, world_map: Text, t: datetime.datetime) -> Tuple[np.ndarray, np.ndarray]:
     """Construct a truecolor image for the specified time.
 
     Args:
+      world_map: the URL for the world map image.
       t: the date.
 
     Returns:
-      An RGB image.
+      A pair of images (world_img, truecolor_img).
     """
     imgs = self.load_channel_images(t, [1, 2, 3])
     _, md = imgs[1]
     grid = goes_area_definition(md, shape=self.shape)
     world_img = self.load_world_img_from_url(world_map, grid)
     rgb = goes_to_daytime_mask(world_img, imgs)
-    return rgb
+    return world_img, rgb
+  
+  def raw_image(self, t: datetime.datetime, channels: List[int]) -> np.ndarray:
+    """Load the GOES channels and flatten them into a multi-channel image.
+
+    Args:
+      world_map: the URL for the world map image.
+      t: the observation time.
+      channels: the channels to load.
+
+    Returns:
+      A numpy array containing the channel data.
+    """
+    table = self.load_channel_images(t, channels)
+    imgs = []
+    for c in channels:
+      img, _ = table[c]
+      imgs.append(img)
+    return np.stack(imgs, axis=-1)
+
