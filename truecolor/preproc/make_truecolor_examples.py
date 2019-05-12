@@ -4,10 +4,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from typing import Generator, List, Text
+from typing import Generator, List, Optional, Text
 
 import datetime
-import logging
+import logging  # pylint: disable=unused-import
 import os
 from absl import app
 from absl import flags
@@ -15,11 +15,13 @@ from absl import flags
 import apache_beam as beam
 import dateparser
 import dateutil
-import numpy as np
-import tensorflow as tf
+import numpy as np  # pylint: disable=unused-import
+import tensorflow as tf  # pylint: disable=unused-import
 
-from truecolor.goeslib import goes_reader
-from truecolor.learning import hparams
+import google.cloud.storage as gcs
+
+from truecolor.goeslib import goes_reader  # pylint: disable=unused-import
+from truecolor.learning import hparams  # pylint: disable=unused-import
 
 
 flags.DEFINE_string(
@@ -100,74 +102,101 @@ def _get_sample_dates(start_date: Text, end_date: Text, step_days: int) -> List[
   return dates
 
 
-# pylint: disable=too-many-locals
-def make_truecolor_examples(
-    t: datetime.datetime, project_id: Text, goes_bucket_name: Text,
-    image_size: int, tile_size: int, world_map: Text, ir_channels: List[int]) -> Generator[bytes, None, None]:
-  """Read a GOES snapshot and contruct TFExamples.
+# pylint: disable=abstract-method,too-many-instance-attributes
+class CreateTFExamples(beam.DoFn):
+  """Create tensorflow example protos from GOES images."""
 
-  Args:
-    t: the snapshot time
-    project_id: the billing account
-    goes_bucket_name: the name of the bucket containg the GOES images
-    image_size: the total image size (square)
-    tile_size: the size of each example (square)
-    world_map: the URL of the world map image
+  def __init__(
+      self,
+      project_id: Text, goes_bucket_name: Text,
+      image_size: int, tile_size: int, world_map: Text, ir_channels: List[int],
+      tmp_dir: Optional[Text] = None,
+      gcs_client: Optional[gcs.Client] = None):
+    # pylint: disable=super-init-not-called
+    """Read a GOES snapshot and contruct TFExamples.
 
-  Yields:
-    A sequence of serialized TFExample protos.
-  """
-  # pylint: disable=reimported,redefined-outer-name
-  import logging
-  import numpy as np
-  import tensorflow as tf
-  from truecolor.goeslib import goes_reader
-  from truecolor.learning import hparams
+    Args:
+      t: the snapshot time
+      project_id: the billing account
+      goes_bucket_name: the name of the bucket containg the GOES images
+      image_size: the total image size (square)
+      tile_size: the size of each example (square)
+      world_map: the URL of the world map image
+      ir_channels: the IR channels.
+    """
+    self.project_id = project_id
+    self.goes_bucket_name = goes_bucket_name
+    self.image_size = image_size
+    self.tile_size = tile_size
+    self.world_map = world_map
+    self.ir_channels = ir_channels
+    self.reader = None
+    self.tmp_dir = tmp_dir
+    self.gcs_client = gcs_client
 
-  # Fetch the truecolor and IR images.
-  shape = image_size, image_size
-  reader = goes_reader.GoesReader(project_id, goes_bucket_name, shape=shape)
-  logging.info('creating truecolor image for %s', t)
-  world, rgb = reader.truecolor_image(world_map, t)
-  logging.info('creating IR image for %s', t)
-  ir = reader.raw_image(t, ir_channels)
-  ir = np.concatenate((world, ir), axis=-1)
+  # pylint: disable=arguments-differ,too-many-locals
+  def process(self, t: datetime.datetime) -> Generator[Text, None, None]:
+    # pylint: disable=reimported,redefined-outer-name
+    import logging
+    import numpy as np
+    import tensorflow as tf
+    from truecolor.goeslib import goes_reader
+    from truecolor.learning import hparams
 
-  # Split into tiles and generate tensorflow examples.
-  logging.info('creating tiles for %s', t)
-  rgb_rows = np.split(rgb, tile_size, axis=0)
-  ir_rows = np.split(ir, tile_size, axis=0)
-  for rgb_row, ir_row in zip(rgb_rows, ir_rows):
-    rgb_tiles = np.split(rgb_row, tile_size, axis=1)
-    ir_tiles = np.split(ir_row, tile_size, axis=1)
-    for rgb_tile, ir_tile in zip(rgb_tiles, ir_tiles):
-      features = {
-        hparams.TRUECOLOR_CHANNELS_FEATURE_NAME: tf.train.Feature(
-          int64_list=tf.train.Int64List(value=rgb_tile.ravel())),
+    # Create the GoesReader lazily so that beam will not pickle it
+    # when copying this object to other workers.
+    if self.reader is None:
+      logging.info('creating GoesReader')
+      shape = self.image_size, self.image_size
+      self.reader = goes_reader.GoesReader(
+          project_id=self.project_id,
+          goes_bucket_name=self.goes_bucket_name, shape=shape,
+          tmp_dir=self.tmp_dir, client=self.gcs_client)
 
-        hparams.IR_CHANNELS_FEATURE_NAME:  tf.train.Feature(
-          int64_list=tf.train.Int64List(value=ir_tile.ravel())),
-      }
-      example = tf.train.Example(features=tf.train.Features(feature=features))
-      yield example.SerializeToString()
+    # Fetch the truecolor and IR images.
+    logging.info('creating truecolor image for %s', t)
+    world, rgb = self.reader.truecolor_image(self.world_map, t)
+    logging.info('creating IR image for %s', t)
+    ir = self.reader.raw_image(t, self.ir_channels)
+    ir = np.concatenate((world, ir), axis=-1)
+
+    # Split into tiles and generate tensorflow examples.
+    logging.info('creating tiles for %s', t)
+    partitions = self.image_size // self.tile_size
+    rgb_rows = np.split(rgb, partitions, axis=0)
+    ir_rows = np.split(ir, partitions, axis=0)
+    for rgb_row, ir_row in zip(rgb_rows, ir_rows):
+      rgb_tiles = np.split(rgb_row, partitions, axis=1)
+      ir_tiles = np.split(ir_row, partitions, axis=1)
+      for rgb_tile, ir_tile in zip(rgb_tiles, ir_tiles):
+        features = {
+            hparams.TRUECOLOR_CHANNELS_FEATURE_NAME: tf.train.Feature(
+                int64_list=tf.train.Int64List(value=rgb_tile.ravel())),
+
+            hparams.IR_CHANNELS_FEATURE_NAME:  tf.train.Feature(
+                int64_list=tf.train.Int64List(value=ir_tile.ravel())),
+        }
+        example = tf.train.Example(features=tf.train.Features(feature=features))
+        yield example.SerializeToString()
 
 
 def main(unused_argv):
   """Beam pipeline to create examples."""
   train_dates = _get_sample_dates(
-    FLAGS.train_start_date, FLAGS.train_end_date, FLAGS.train_step_days)
+      FLAGS.train_start_date, FLAGS.train_end_date, FLAGS.train_step_days)
   test_dates = _get_sample_dates(
-    FLAGS.test_start_date, FLAGS.test_end_date, FLAGS.test_step_days)
+      FLAGS.test_start_date, FLAGS.test_end_date, FLAGS.test_step_days)
 
   # Create the beam pipeline.
   options = {'staging_location': os.path.join(FLAGS.out_dir, 'tmp', 'staging'),
              'temp_location': os.path.join(FLAGS.out_dir, 'tmp'),
              'job_name': datetime.datetime.now().strftime('truecolor-%y%m%d-%H%M%S'),
              'project': FLAGS.project,
+             'num_workers': 2,
              'max_num_workers': FLAGS.max_workers,
              'machine_type': 'n1-highmem-4',
              'setup_file': os.path.join(
-               os.path.dirname(os.path.abspath(__file__)), '../../setup.py'),
+                 os.path.dirname(os.path.abspath(__file__)), '../../setup.py'),
              'teardown_policy': 'TEARDOWN_ALWAYS',
              'save_main_session': False}
   opts = beam.pipeline.PipelineOptions(flags=[], **options)
@@ -177,13 +206,12 @@ def main(unused_argv):
     for mode, dates in [('train', train_dates), ('test', test_dates)]:
       (p  # pylint: disable=expression-not-assigned
        | 'create-{}'.format(mode) >> beam.Create(dates)
-       | 'sample-{}'.format(mode) >> beam.FlatMap(
-         make_truecolor_examples,
-         FLAGS.project, FLAGS.goes_bucket,
-         FLAGS.image_size, FLAGS.tile_size, FLAGS.world_map,
-         IR_CHANNELS)
+       | 'sample-{}'.format(mode) >> beam.ParDo(CreateTFExamples(
+           FLAGS.project, FLAGS.goes_bucket,
+           FLAGS.image_size, FLAGS.tile_size, FLAGS.world_map,
+           IR_CHANNELS))
        | 'write-{}'.format(mode) >> beam.io.tfrecordio.WriteToTFRecord(
-         os.path.join(FLAGS.out_dir, mode)))
+           os.path.join(FLAGS.out_dir, mode)))
 
 
 if __name__ == '__main__':

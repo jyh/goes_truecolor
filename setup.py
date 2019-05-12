@@ -106,14 +106,14 @@ class CustomCommands(setuptools.Command):
 # so this dependency will not trigger anything to be installed unless a version
 # restriction is specified.
 REQUIRED_PACKAGES = [
-  'absl-py',
-  'dateparser',
-  'netcdf4',
-  'xarray',
-  'pyresample',
-  'google-cloud-storage',
-  'scikit-image',
-  'tensorflow',
+    'absl-py',
+    'dateparser',
+    'netcdf4',
+    'xarray',
+    'pyresample',
+    'google-cloud-storage',
+    'scikit-image',
+    'tensorflow',
 ]
 
 setuptools.setup(

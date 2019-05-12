@@ -9,7 +9,6 @@ import logging
 import os
 import re
 import tempfile
-import time
 import urllib
 
 import collections
@@ -99,7 +98,8 @@ def _parse_filename(filename: Text) -> GoesFile:
                   creation_date)
 
 
-def resample_world_img(world_img: np.ndarray, new_grid: pyresample.geometry.AreaDefinition) -> np.ndarray:
+def resample_world_img(
+    world_img: np.ndarray, new_grid: pyresample.geometry.AreaDefinition) -> np.ndarray:
   """Resample an image of the world to fit a pyresample area.
 
   Args:
@@ -120,7 +120,8 @@ def resample_world_img(world_img: np.ndarray, new_grid: pyresample.geometry.Area
       radius_of_influence=50000)
 
 
-def goes_area_definition(md: Dict[Text, Any], shape: Optional[Tuple[int, int]]) -> pyresample.geometry.AreaDefinition:
+def goes_area_definition(
+    md: Dict[Text, Any], shape: Optional[Tuple[int, int]]) -> pyresample.geometry.AreaDefinition:
   """Get the area definition for the satellite image.
 
   Args:
@@ -161,7 +162,8 @@ def goes_area_definition(md: Dict[Text, Any], shape: Optional[Tuple[int, int]]) 
   return grid
 
 
-def goes_to_daytime_mask(world_img: np.ndarray, ref: Dict[int, Tuple[np.ndarray, Any]]) -> np.ndarray:
+def goes_to_daytime_mask(
+    world_img: np.ndarray, ref: Dict[int, Tuple[np.ndarray, Any]]) -> np.ndarray:
   """Convert GOES channels to a truecolor image based on daytime channels.
 
   Args:
@@ -204,7 +206,9 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
   def __init__(
       self,
       project_id: Text, goes_bucket_name: Text = GOES_BUCKET,
-      key: Text = 'Rad', shape: Tuple[int, int] = (512, 512)):
+      key: Text = 'Rad', shape: Tuple[int, int] = (512, 512),
+      tmp_dir: Optional[Text] = None,
+      client: Optional[gcs.Client] = None):
     """Create a GoesReader.
 
     Args:
@@ -215,15 +219,15 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     """
     self.project_id = project_id
     self.goes_bucket_name = goes_bucket_name
-    self.client = gcs.Client(project=project_id)
-    self.tmp_dir = tempfile.mkdtemp('GoesReader')
+    self.client = gcs.Client(project=project_id) if client is None else client
+    self.tmp_dir = tempfile.mkdtemp('GoesReader') if tmp_dir is None else tmp_dir
     self.key = key
     self.shape = shape
-    self.cache = {}
     self.world_imgs = {}
 
-  def list_time_range(self, start_time, end_time):
-    # type (datetime.datetime, datetime.datetime) -> List[Tuple[datetime.datetime, Dict[int, gcs.Blob]]]:
+  def list_time_range(
+      self, start_time: datetime.datetime, end_time: datetime.datetime) -> List[
+          Tuple[datetime.datetime, Dict[int, gcs.Blob]]]:
     """List the blobs for GOES images within the given time range.
 
     Args:
@@ -268,11 +272,8 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     img = skimage.transform.resize(img, self.shape, mode='reflect', anti_aliasing=True)
     return (img * 255).astype(np.uint8)
 
-  def _load_image(self, blob):
-    # type (gcs.Blob) -> Tuple[np.ndarray, Dict[Text, Any]]:
+  def _load_image(self, blob: gcs.Blob) -> Tuple[np.ndarray, Dict[Text, Any]]:
     bid = blob.id
-    if bid in self.cache:
-      return self.cache[bid]
     with mktemp(dir=self.tmp_dir, suffix='.nc') as infile:
       logging.info('downloading %s', bid)
       blob.download_to_filename(infile)
@@ -284,11 +285,11 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
         for k in METADATA_KEYS:
           if k in nc.data_vars or k in nc.coords:
             md[k] = nc[k].copy()
-        v = (img, md)
-        self.cache[bid] = v
-        return v
+        return (img, md)
 
-  def load_channel_images(self, t: datetime.datetime, channels: List[int]) -> Dict[int, Tuple[np.ndarray, Dict[Text, Any]]]:
+  def load_channel_images(
+      self, t: datetime.datetime, channels: List[int]) -> Dict[
+          int, Tuple[np.ndarray, Dict[Text, Any]]]:
     """Load the GOES channels.
 
     Args:
@@ -311,7 +312,10 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       imgs[c] = (img, md)
     return imgs
 
-  def load_world_img_from_url(self, world_map: Text, grid: pyresample.geometry.AreaDefinition) -> np.ndarray:
+  def load_world_img_from_url(
+      self,
+      world_map: Text,
+      grid: pyresample.geometry.AreaDefinition) -> np.ndarray:
     """Fetch the world map image from a URL.
 
     Args:
@@ -330,7 +334,8 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
         self.world_imgs[world_map] = img
     return img
 
-  def truecolor_image(self, world_map: Text, t: datetime.datetime) -> Tuple[np.ndarray, np.ndarray]:
+  def truecolor_image(
+      self, world_map: Text, t: datetime.datetime) -> Tuple[np.ndarray, np.ndarray]:
     """Construct a truecolor image for the specified time.
 
     Args:
@@ -346,7 +351,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     world_img = self.load_world_img_from_url(world_map, grid)
     rgb = goes_to_daytime_mask(world_img, imgs)
     return world_img, rgb
-  
+
   def raw_image(self, t: datetime.datetime, channels: List[int]) -> np.ndarray:
     """Load the GOES channels and flatten them into a multi-channel image.
 
@@ -364,4 +369,3 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       img, _ = table[c]
       imgs.append(img)
     return np.stack(imgs, axis=-1)
-
