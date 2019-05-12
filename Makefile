@@ -19,7 +19,11 @@ lint:
 	pylint `find . -name "*.py" -print`
 
 run_local:
-	python -m truecolor.preproc.make_truecolor_examples
+	python -m goes_truecolor.preproc.make_truecolor_examples
 
 run_dataflow:
-	python -m truecolor.preproc.make_truecolor_examples --runner=DataflowRunner
+	python -m goes_truecolor.preproc.make_truecolor_examples --runner=DataflowRunner
+
+test:
+	python -m goes_truecolor.tests.goes_reader_test
+	python -m goes_truecolor.tests.make_truecolor_examples_test

@@ -20,8 +20,8 @@ import tensorflow as tf  # pylint: disable=unused-import
 
 import google.cloud.storage as gcs
 
-from truecolor.goeslib import goes_reader  # pylint: disable=unused-import
-from truecolor.learning import hparams  # pylint: disable=unused-import
+from goes_truecolor.lib import goes_reader  # pylint: disable=unused-import
+from goes_truecolor.learning import hparams  # pylint: disable=unused-import
 
 
 flags.DEFINE_string(
@@ -140,8 +140,8 @@ class CreateTFExamples(beam.DoFn):
     import logging
     import numpy as np
     import tensorflow as tf
-    from truecolor.goeslib import goes_reader
-    from truecolor.learning import hparams
+    from goes_truecolor.lib import goes_reader
+    from goes_truecolor.learning import hparams
 
     # Create the GoesReader lazily so that beam will not pickle it
     # when copying this object to other workers.

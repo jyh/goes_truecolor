@@ -14,9 +14,9 @@ import dateutil
 
 from absl.testing import absltest
 
-from truecolor.preproc import make_truecolor_examples
-from truecolor.tests import fake_gcs
-from truecolor.tests import goes_test_util
+from goes_truecolor.beam import make_truecolor_examples
+from goes_truecolor.tests import fake_gcs
+from goes_truecolor.tests import goes_test_util
 
 
 class MakeTruecolorExamplesTest(absltest.TestCase):
@@ -54,7 +54,7 @@ class MakeTruecolorExamplesTest(absltest.TestCase):
         goes_bucket_name=self.bucket_name,
         image_size=image_size,
         tile_size=tile_size,
-        world_map='file:truecolor/tests/testdata/world_map.jpg',
+        world_map='file:goes_truecolor/tests/testdata/world_map.jpg',
         ir_channels=[7, 8, 9],
         tmp_dir=self.tmp_dir,
         gcs_client=self.client)

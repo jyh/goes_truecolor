@@ -14,11 +14,11 @@ import dateutil
 
 from absl.testing import absltest
 
-from truecolor.goeslib import goes_reader
-from truecolor.tests import fake_gcs
-from truecolor.tests import goes_test_util
+from goes_truecolor.lib import goes_reader
+from goes_truecolor.tests import fake_gcs
+from goes_truecolor.tests import goes_test_util
 
-WORLD_MAP = 'file:truecolor/tests/testdata/world_map.jpg'
+WORLD_MAP = 'file:goes_truecolor/tests/testdata/world_map.jpg'
 
 
 class GoesReaderTest(absltest.TestCase):
