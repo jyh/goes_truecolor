@@ -55,11 +55,11 @@ flags.DEFINE_string(
     'Base map image of the world')
 
 flags.DEFINE_string(
-    'train_start_date', '1/1/2019 17:00',
+    'train_start_date', '1/1/2018 17:00',
     'Start date for collecting images')
 
 flags.DEFINE_string(
-    'train_end_date', '1/1/2019 17:00',
+    'train_end_date', '12/31/2018 17:00',
     'End date for collecting images (inclusive)')
 
 flags.DEFINE_integer(
@@ -67,15 +67,15 @@ flags.DEFINE_integer(
     'Number of days between training samples')
 
 flags.DEFINE_string(
-    'test_start_date', '2/1/2019 17:00',
+    'test_start_date', '1/1/2019 17:00',
     'Start date for collecting images')
 
 flags.DEFINE_string(
-    'test_end_date', '2/1/2019 17:00',
+    'test_end_date', '5/1/2019 17:00',
     'End date for collecting images (inclusive)')
 
 flags.DEFINE_integer(
-    'test_step_days', 1,
+    'test_step_days', 3,
     'Number of days between testing samples')
 
 flags.DEFINE_integer(
@@ -155,9 +155,14 @@ class CreateTFExamples(beam.DoFn):
 
     # Fetch the truecolor and IR images.
     logging.info('creating truecolor image for %s', t)
-    world, rgb = self.reader.truecolor_image(self.world_map, t)
+    tc_pair = self.reader.truecolor_image(self.world_map, t)
+    if tc_pair is None:
+      return
+    world, rgb = tc_pair
     logging.info('creating IR image for %s', t)
     ir = self.reader.raw_image(t, self.ir_channels)
+    if ir is None:
+      return
     ir = np.concatenate((world, ir), axis=-1)
 
     # Split into tiles and generate tensorflow examples.
@@ -192,7 +197,7 @@ def main(unused_argv):
              'temp_location': os.path.join(FLAGS.out_dir, 'tmp'),
              'job_name': datetime.datetime.now().strftime('truecolor-%y%m%d-%H%M%S'),
              'project': FLAGS.project,
-             'num_workers': 2,
+             'num_workers': 1,
              'max_num_workers': FLAGS.max_workers,
              'machine_type': 'n1-highmem-4',
              'setup_file': os.path.join(
@@ -211,7 +216,8 @@ def main(unused_argv):
            FLAGS.image_size, FLAGS.tile_size, FLAGS.world_map,
            IR_CHANNELS))
        | 'write-{}'.format(mode) >> beam.io.tfrecordio.WriteToTFRecord(
-           os.path.join(FLAGS.out_dir, mode)))
+           os.path.join(FLAGS.out_dir, '{}.tfrecord'.format(mode)),
+           num_shards=32))
 
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@
 # $ export CC=/usr/local/opt/gcc/bin/gcc-9 CXX=/usr/local/opt/gcc/bin/g++-9
 # $ pip install pyresample
 
-.PHONY: typecheck lint run_local run_dataflow
+.PHONY: typecheck lint run_local run_dataflow test
 
 typecheck:
 	pytype -P . `find . -name "*.py" -print`
@@ -19,10 +19,10 @@ lint:
 	pylint `find . -name "*.py" -print`
 
 run_local:
-	python -m goes_truecolor.preproc.make_truecolor_examples
+	python -m goes_truecolor.beam.make_truecolor_examples
 
 run_dataflow:
-	python -m goes_truecolor.preproc.make_truecolor_examples --runner=DataflowRunner
+	python -m goes_truecolor.beam.make_truecolor_examples --runner=DataflowRunner
 
 test:
 	python -m goes_truecolor.tests.goes_reader_test

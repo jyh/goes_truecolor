@@ -288,8 +288,8 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
         return (img, md)
 
   def load_channel_images(
-      self, t: datetime.datetime, channels: List[int]) -> Dict[
-          int, Tuple[np.ndarray, Dict[Text, Any]]]:
+      self, t: datetime.datetime, channels: List[int]) -> Optional[Dict[
+          int, Tuple[np.ndarray, Dict[Text, Any]]]]:
     """Load the GOES channels.
 
     Args:
@@ -301,13 +301,15 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       channel image, and md is the metadata.
     """
     blobs = self.list_time_range(t, t + datetime.timedelta(hours=1))
+    if not blobs:
+      return None
     t, channel_table = blobs[0]
     imgs = {}
     for c in channels:
       if c in channel_table:
         img, md = self._load_image(channel_table[c])
       else:
-        img = np.zeros(self.shape, dtype=np.float32)
+        img = np.zeros(self.shape, dtype=np.uint8)
         md = {}
       imgs[c] = (img, md)
     return imgs
@@ -335,7 +337,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     return img
 
   def truecolor_image(
-      self, world_map: Text, t: datetime.datetime) -> Tuple[np.ndarray, np.ndarray]:
+      self, world_map: Text, t: datetime.datetime) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Construct a truecolor image for the specified time.
 
     Args:
@@ -346,13 +348,15 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       A pair of images (world_img, truecolor_img).
     """
     imgs = self.load_channel_images(t, [1, 2, 3])
+    if imgs is None:
+      return None
     _, md = imgs[1]
     grid = goes_area_definition(md, shape=self.shape)
     world_img = self.load_world_img_from_url(world_map, grid)
     rgb = goes_to_daytime_mask(world_img, imgs)
     return world_img, rgb
 
-  def raw_image(self, t: datetime.datetime, channels: List[int]) -> np.ndarray:
+  def raw_image(self, t: datetime.datetime, channels: List[int]) -> Optional[np.ndarray]:
     """Load the GOES channels and flatten them into a multi-channel image.
 
     Args:
@@ -364,6 +368,8 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       A numpy array containing the channel data.
     """
     table = self.load_channel_images(t, channels)
+    if table is None:
+      return None
     imgs = []
     for c in channels:
       img, _ = table[c]
