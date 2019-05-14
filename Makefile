@@ -19,7 +19,12 @@ lint:
 	pylint `find . -name "*.py" -print`
 
 run_local:
-	python -m goes_truecolor.beam.make_truecolor_examples
+	python -m goes_truecolor.beam.make_truecolor_examples \
+		--train_start_date="1/1/2018 17:00" \
+		--train_end_date="1/1/2018 17:00" \
+		--test_start_date="2/1/2018 17:00" \
+		--test_end_date="1/1/2018 17:00" \
+		--num_shards=1
 
 run_dataflow:
 	python -m goes_truecolor.beam.make_truecolor_examples --runner=DataflowRunner

@@ -12,7 +12,6 @@ import tempfile
 import urllib
 
 import collections
-from contextlib import contextmanager
 import datetime
 import dateutil.tz
 import numpy as np
@@ -23,6 +22,8 @@ import skimage.transform
 import xarray
 
 import google.cloud.storage as gcs
+
+from goes_truecolor.lib import file_util
 
 GOES_BUCKET = 'gcp-public-data-goes-16'
 
@@ -40,22 +41,27 @@ METADATA_KEYS = [
 
 UTC = dateutil.tz.tzutc()
 
+MAX_COLOR_VALUE = 255.9
 
-@contextmanager
-def mktemp(**keyword_params):
-  """Create a local file, removing it when the operation is complete.
-
-  Args:
-    **keyword_params: keyword params to be passed to tempfile.mkstemp().
-
-  Yields:
-    Filename of the temporary file.
-  """
-
-  fd, local_filename = tempfile.mkstemp(**keyword_params)
-  os.close(fd)
-  yield local_filename
-  os.remove(local_filename)
+IR_SCALE_FACTOR = [
+    1e-2,  # 0
+    1e-2,  # 1
+    1e-2,  # 2
+    1e-2,  # 3
+    1e-2,  # 4
+    1e-2,  # 5
+    1e-2,  # 6
+    1e-2,  # 7
+    1 / 10, # 8
+    1 / 20,  # 9
+    1 / 30,  # 10
+    1 / 100,  # 11
+    1 / 100,  # 12
+    1 / 150,  # 13
+    1 / 150,  # 14
+    1 / 150,  # 15
+    1 / 150,  # 16
+]
 
 FILE_REGEX = (r'.*/OR_([^/]+)-M(\d+)C(\d\d)_G\d\d_s(\d+)(\d)'
               r'_e(\d+)(\d)_c(\d+)(\d)[.]nc')
@@ -162,43 +168,6 @@ def goes_area_definition(
   return grid
 
 
-def goes_to_daytime_mask(
-    world_img: np.ndarray, ref: Dict[int, Tuple[np.ndarray, Any]]) -> np.ndarray:
-  """Convert GOES channels to a truecolor image based on daytime channels.
-
-  Args:
-    world_img: an image of the world.
-    ref: a dictionary of GOES channel images.
-
-  Returns:
-    A numpy RGB uint8 array with the truecolor image.
-  """
-  # Daytime image.
-  blue, _ = ref[1]
-  red, _ = ref[2]
-  veggie, _ = ref[3]
-  green = 0.45 * blue + 0.1 * veggie + 0.45 * red
-  rgb = np.stack([red, green, blue], axis=-1)
-  rgb = rgb.astype(np.float32) / 255
-
-  # Gamma correction.
-  rgb = np.sqrt(rgb)
-
-  # Clipping.
-  rgb = np.minimum(1, np.maximum(0, rgb))
-
-  # Masks are based on RGB luminance.
-  lum = np.sqrt(np.sum(rgb**2, axis=-1))
-  bright_mask = 1 / (1 + np.exp(-10 * (lum - 0.7)))
-
-  # Image composite.
-  world_img = world_img[:, :, 0:3] / 255
-  bright3_mask = bright_mask[:, :, np.newaxis]
-  img = bright3_mask * rgb + (1 - bright3_mask) * world_img
-
-  return (img * 255).astype(np.uint8)
-
-
 class GoesReader(object):  # pylint: disable=useless-object-inheritance
   """Client for accessing GOES-16 data."""
 
@@ -262,19 +231,19 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
 
   def _resample_image(self, nc: xarray.DataArray) -> np.ndarray:
     """Extract an image from the GOES data."""
-    kappa0 = nc['kappa0'].data
+    kappa0 = nc.kappa0.data
     if np.isnan(kappa0):
-      kappa0 = 1e-2
+      kappa0 = IR_SCALE_FACTOR[nc.band_id.data[0]]
     img = nc[self.key].data
     img = img.astype(np.float32) * kappa0
     img = np.nan_to_num(img)
     img = np.minimum(1, np.maximum(0, img))
     img = skimage.transform.resize(img, self.shape, mode='reflect', anti_aliasing=True)
-    return (img * 255).astype(np.uint8)
+    return (img * MAX_COLOR_VALUE).astype(np.uint8)
 
   def _load_image(self, blob: gcs.Blob) -> Tuple[np.ndarray, Dict[Text, Any]]:
     bid = blob.id
-    with mktemp(dir=self.tmp_dir, suffix='.nc') as infile:
+    with file_util.mktemp(dir=self.tmp_dir, suffix='.nc') as infile:
       logging.info('downloading %s', bid)
       blob.download_to_filename(infile)
       logging.info('downloaded %s', bid)
@@ -329,32 +298,30 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     """
     img = self.world_imgs.get(world_map)
     if img is None:
-      with mktemp(dir=self.tmp_dir, suffix='.jpg') as infile:
+      with file_util.mktemp(dir=self.tmp_dir, suffix='.jpg') as infile:
         urllib.request.urlretrieve(world_map, infile)
         img = skimage.io.imread(infile)
         img = resample_world_img(img, grid)
         self.world_imgs[world_map] = img
     return img
 
-  def truecolor_image(
-      self, world_map: Text, t: datetime.datetime) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    """Construct a truecolor image for the specified time.
+  def cloud_mask(self, t: datetime.datetime) -> Optional[np.ndarray]:
+    """Construct a cloud mask image for the specified time.
 
     Args:
       world_map: the URL for the world map image.
-      t: the date.
+      t: the datetime.
 
     Returns:
-      A pair of images (world_img, truecolor_img).
+      An image containing the cloud mask.
     """
-    imgs = self.load_channel_images(t, [1, 2, 3])
+    imgs = self.load_channel_images(t, [1])
     if imgs is None:
       return None
-    _, md = imgs[1]
-    grid = goes_area_definition(md, shape=self.shape)
-    world_img = self.load_world_img_from_url(world_map, grid)
-    rgb = goes_to_daytime_mask(world_img, imgs)
-    return world_img, rgb
+    img, _ = imgs[1]
+    img = np.sqrt(img.astype(np.float32) / 256)
+    mask = 1 / (1 + np.exp(-10 * (img - 0.3)))
+    return (img * mask * MAX_COLOR_VALUE).astype(np.uint8)
 
   def raw_image(self, t: datetime.datetime, channels: List[int]) -> Optional[np.ndarray]:
     """Load the GOES channels and flatten them into a multi-channel image.

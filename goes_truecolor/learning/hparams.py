@@ -3,5 +3,5 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-TRUECOLOR_CHANNELS_FEATURE_NAME = 'truecolor-channels'
+CLOUD_MASK_FEATURE_NAME = 'cloud-mask'
 IR_CHANNELS_FEATURE_NAME = 'ir-channels'

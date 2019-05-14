@@ -91,11 +91,11 @@ class GoesReaderTest(absltest.TestCase):
     self.assertEqual((4, 4), img.shape)
     self.assertAlmostEqual(1e-2, md['kappa0'])
 
-  def test_truecolor_image(self):
-    """Test GoesReader.truecolor_image."""
+  def test_cloud_mask(self):
+    """Test GoesReader.cloud_mask."""
     utc = dateutil.tz.tzutc()
     t = datetime.datetime(2018, 1, 1, 12, 15, 0, tzinfo=utc)
-    channels = [1, 2, 3]
+    channels = [1]
     for c in channels:
       self.create_fake_goes_image(t, c)
     reader = goes_reader.GoesReader(
@@ -103,9 +103,8 @@ class GoesReaderTest(absltest.TestCase):
         shape=(4, 4),
         tmp_dir=self.tmp_dir,
         client=self.client)
-    world_img, rgb = reader.truecolor_image(WORLD_MAP, t)
-    self.assertEqual((4, 4, 3), world_img.shape)
-    self.assertEqual((4, 4, 3), rgb.shape)
+    mask = reader.cloud_mask(t)
+    self.assertEqual((4, 4), mask.shape)
 
   def test_raw_image(self):
     """Test GoesReader.raw_image."""

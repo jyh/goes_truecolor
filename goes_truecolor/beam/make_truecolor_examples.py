@@ -33,7 +33,11 @@ flags.DEFINE_string(
     'GOES bucket')
 
 flags.DEFINE_string(
-    'out_dir', 'gs://weather-tmp/examples',
+    'tmp_dir', 'gs://weather-tmp',
+    'Temporary files bucket')
+
+flags.DEFINE_string(
+    'out_dir', 'gs://weather-datasets/goes_truecolor/examples',
     'Output bucket')
 
 flags.DEFINE_string(
@@ -46,7 +50,10 @@ flags.DEFINE_integer(
     'Maximum number of worker processes')
 
 flags.DEFINE_integer(
-    'image_size', 1024, 'size of the images')
+    'image_size', 1024, 'size of the images (images are square)')
+
+flags.DEFINE_integer(
+    'tile_size', 64, 'size of tensorflow example tiles')
 
 flags.DEFINE_string(
     'world_map',
@@ -79,12 +86,12 @@ flags.DEFINE_integer(
     'Number of days between testing samples')
 
 flags.DEFINE_integer(
-    'tile_size', 64, 'size of tensorflow example tiles')
+    'num_shards', 32, 'number of tfrecord shards')
 
 
 FLAGS = flags.FLAGS
 
-IR_CHANNELS = list(range(7, 17))
+IR_CHANNELS = list(range(8, 17))
 
 
 def _get_sample_dates(start_date: Text, end_date: Text, step_days: int) -> List[datetime.datetime]:
@@ -154,29 +161,27 @@ class CreateTFExamples(beam.DoFn):
           tmp_dir=self.tmp_dir, client=self.gcs_client)
 
     # Fetch the truecolor and IR images.
-    logging.info('creating truecolor image for %s', t)
-    tc_pair = self.reader.truecolor_image(self.world_map, t)
-    if tc_pair is None:
+    logging.info('creating cloud mask image %s', t)
+    mask_img = self.reader.cloud_mask(t)
+    if mask_img is None:
       return
-    world, rgb = tc_pair
     logging.info('creating IR image for %s', t)
     ir = self.reader.raw_image(t, self.ir_channels)
     if ir is None:
       return
-    ir = np.concatenate((world, ir), axis=-1)
 
     # Split into tiles and generate tensorflow examples.
     logging.info('creating tiles for %s', t)
     partitions = self.image_size // self.tile_size
-    rgb_rows = np.split(rgb, partitions, axis=0)
+    mask_rows = np.split(mask_img, partitions, axis=0)
     ir_rows = np.split(ir, partitions, axis=0)
-    for rgb_row, ir_row in zip(rgb_rows, ir_rows):
-      rgb_tiles = np.split(rgb_row, partitions, axis=1)
+    for mask_row, ir_row in zip(mask_rows, ir_rows):
+      mask_tiles = np.split(mask_row, partitions, axis=1)
       ir_tiles = np.split(ir_row, partitions, axis=1)
-      for rgb_tile, ir_tile in zip(rgb_tiles, ir_tiles):
+      for mask_tile, ir_tile in zip(mask_tiles, ir_tiles):
         features = {
-            hparams.TRUECOLOR_CHANNELS_FEATURE_NAME: tf.train.Feature(
-                int64_list=tf.train.Int64List(value=rgb_tile.ravel())),
+            hparams.CLOUD_MASK_FEATURE_NAME: tf.train.Feature(
+                int64_list=tf.train.Int64List(value=mask_tile.ravel())),
 
             hparams.IR_CHANNELS_FEATURE_NAME:  tf.train.Feature(
                 int64_list=tf.train.Int64List(value=ir_tile.ravel())),
@@ -193,8 +198,8 @@ def main(unused_argv):
       FLAGS.test_start_date, FLAGS.test_end_date, FLAGS.test_step_days)
 
   # Create the beam pipeline.
-  options = {'staging_location': os.path.join(FLAGS.out_dir, 'tmp', 'staging'),
-             'temp_location': os.path.join(FLAGS.out_dir, 'tmp'),
+  options = {'staging_location': os.path.join(FLAGS.tmp_dir, 'tmp', 'staging'),
+             'temp_location': os.path.join(FLAGS.tmp_dir, 'tmp'),
              'job_name': datetime.datetime.now().strftime('truecolor-%y%m%d-%H%M%S'),
              'project': FLAGS.project,
              'num_workers': 1,
@@ -217,7 +222,7 @@ def main(unused_argv):
            IR_CHANNELS))
        | 'write-{}'.format(mode) >> beam.io.tfrecordio.WriteToTFRecord(
            os.path.join(FLAGS.out_dir, '{}.tfrecord'.format(mode)),
-           num_shards=32))
+           num_shards=FLAGS.num_shards))
 
 
 if __name__ == '__main__':

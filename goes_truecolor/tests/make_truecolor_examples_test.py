@@ -61,6 +61,47 @@ class MakeTruecolorExamplesTest(absltest.TestCase):
     tiles = list(do_fn.process(t))
     self.assertEqual((image_size // tile_size) ** 2, len(tiles))
 
+  def test_create_tfexamples_with_no_data(self):
+    """Test the CreateTFExample class."""
+    utc = dateutil.tz.tzutc()
+    t = datetime.datetime(2018, 1, 1, 12, 15, 0, tzinfo=utc)
+
+    image_size = 32
+    tile_size = 16
+    do_fn = make_truecolor_examples.CreateTFExamples(
+        project_id='test',
+        goes_bucket_name=self.bucket_name,
+        image_size=image_size,
+        tile_size=tile_size,
+        world_map='file:goes_truecolor/tests/testdata/world_map.jpg',
+        ir_channels=[7, 8, 9],
+        tmp_dir=self.tmp_dir,
+        gcs_client=self.client)
+    tiles = list(do_fn.process(t))
+    self.assertEqual([], tiles)
+
+  def test_create_tfexamples_with_missing_channel(self):
+    """Test the CreateTFExample class."""
+    utc = dateutil.tz.tzutc()
+    t = datetime.datetime(2018, 1, 1, 12, 15, 0, tzinfo=utc)
+    channels = [1, 2, 3, 7, 9]
+    for c in channels:
+      self.create_fake_goes_image(t, c)
+
+    image_size = 32
+    tile_size = 16
+    do_fn = make_truecolor_examples.CreateTFExamples(
+        project_id='test',
+        goes_bucket_name=self.bucket_name,
+        image_size=image_size,
+        tile_size=tile_size,
+        world_map='file:goes_truecolor/tests/testdata/world_map.jpg',
+        ir_channels=[7, 8, 9],
+        tmp_dir=self.tmp_dir,
+        gcs_client=self.client)
+    tiles = list(do_fn.process(t))
+    self.assertEqual((image_size // tile_size) ** 2, len(tiles))
+
 
 if __name__ == '__main__':
   absltest.main()
