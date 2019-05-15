@@ -70,7 +70,7 @@ flags.DEFINE_string(
     'End date for collecting images (inclusive)')
 
 flags.DEFINE_integer(
-    'train_step_days', 1,
+    'train_step_days', 2,
     'Number of days between training samples')
 
 flags.DEFINE_string(
@@ -90,8 +90,6 @@ flags.DEFINE_integer(
 
 
 FLAGS = flags.FLAGS
-
-IR_CHANNELS = list(range(8, 17))
 
 
 def _get_sample_dates(start_date: Text, end_date: Text, step_days: int) -> List[datetime.datetime]:
@@ -166,7 +164,7 @@ class CreateTFExamples(beam.DoFn):
     if mask_img is None:
       return
     logging.info('creating IR image for %s', t)
-    ir = self.reader.raw_image(t, self.ir_channels)
+    ir, _ = self.reader.raw_image(t, self.ir_channels)
     if ir is None:
       return
 
@@ -219,7 +217,7 @@ def main(unused_argv):
        | 'sample-{}'.format(mode) >> beam.ParDo(CreateTFExamples(
            FLAGS.project, FLAGS.goes_bucket,
            FLAGS.image_size, FLAGS.tile_size, FLAGS.world_map,
-           IR_CHANNELS))
+           goes_reader.IR_CHANNELS))
        | 'write-{}'.format(mode) >> beam.io.tfrecordio.WriteToTFRecord(
            os.path.join(FLAGS.out_dir, '{}.tfrecord'.format(mode)),
            num_shards=FLAGS.num_shards))

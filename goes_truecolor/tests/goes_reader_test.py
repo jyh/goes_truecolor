@@ -118,7 +118,7 @@ class GoesReaderTest(absltest.TestCase):
         shape=(4, 4),
         tmp_dir=self.tmp_dir,
         client=self.client)
-    img = reader.raw_image(t, channels)
+    img, _ = reader.raw_image(t, channels)
     self.assertEqual((4, 4, 4), img.shape)
 
 

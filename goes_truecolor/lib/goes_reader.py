@@ -63,6 +63,8 @@ IR_SCALE_FACTOR = [
     1 / 150,  # 16
 ]
 
+IR_CHANNELS = list(range(8, 17))
+
 FILE_REGEX = (r'.*/OR_([^/]+)-M(\d+)C(\d\d)_G\d\d_s(\d+)(\d)'
               r'_e(\d+)(\d)_c(\d+)(\d)[.]nc')
 
@@ -193,6 +195,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     self.key = key
     self.shape = shape
     self.world_imgs = {}
+    self.cache = {}
 
   def list_time_range(
       self, start_time: datetime.datetime, end_time: datetime.datetime) -> List[
@@ -243,6 +246,8 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
 
   def _load_image(self, blob: gcs.Blob) -> Tuple[np.ndarray, Dict[Text, Any]]:
     bid = blob.id
+    if bid in self.cache:
+      return self.cache[bid]
     with file_util.mktemp(dir=self.tmp_dir, suffix='.nc') as infile:
       logging.info('downloading %s', bid)
       blob.download_to_filename(infile)
@@ -254,7 +259,10 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
         for k in METADATA_KEYS:
           if k in nc.data_vars or k in nc.coords:
             md[k] = nc[k].copy()
-        return (img, md)
+
+        v = (img, md)
+        self.cache[bid] = v
+        return v
 
   def load_channel_images(
       self, t: datetime.datetime, channels: List[int]) -> Optional[Dict[
@@ -323,7 +331,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     mask = 1 / (1 + np.exp(-10 * (img - 0.3)))
     return (img * mask * MAX_COLOR_VALUE).astype(np.uint8)
 
-  def raw_image(self, t: datetime.datetime, channels: List[int]) -> Optional[np.ndarray]:
+  def raw_image(self, t: datetime.datetime, channels: List[int]) -> Optional[Tuple[np.ndarray, Dict[Text, Any]]]:
     """Load the GOES channels and flatten them into a multi-channel image.
 
     Args:
@@ -339,6 +347,9 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       return None
     imgs = []
     for c in channels:
-      img, _ = table[c]
+      img, md = table[c]
       imgs.append(img)
-    return np.stack(imgs, axis=-1)
+    return np.stack(imgs, axis=-1), md
+
+  def goes_area_definition(self, md: Dict[Text, Any]) -> pyresample.geometry.AreaDefinition:
+    return goes_area_definition(md, self.shape)
