@@ -13,6 +13,7 @@ import urllib
 
 import collections
 import datetime
+import dateutil.parser
 import dateutil.tz
 import numpy as np
 import pyresample
@@ -26,18 +27,6 @@ import google.cloud.storage as gcs
 from goes_truecolor.lib import file_util
 
 GOES_BUCKET = 'gcp-public-data-goes-16'
-
-# Metadata fields to save from each imager file.
-METADATA_KEYS = [
-    'x',
-    'y',
-    'kappa0',
-    'band_id',
-    'x_image_bounds',
-    'y_image_bounds',
-    'goes_imager_projection',
-    'time_coverage_start',
-]
 
 UTC = dateutil.tz.tzutc()
 
@@ -73,6 +62,18 @@ GoesFile = collections.namedtuple('GoesFile', [
     'start_date', 'end_date', 'creation_date'
 ])
 
+GoesImagerProjection = collections.namedtuple('GoesImagerProjection', [
+    'longitude_of_projection_origin',
+    'perspective_point_height',
+    'x_image_bounds',
+    'y_image_bounds',
+    'semi_major_axis',
+    'semi_minor_axis',
+    'sweep_angle_axis',
+])
+
+GoesMetadata = collections.namedtuple('GoesMetadata', [
+    'kappa0', 'band_id', 'time_coverage_start', 'goes_imager_projection'])
 
 def _parse_filename(filename: Text) -> GoesFile:
   """Convert a filename to a GoesFile description.
@@ -128,8 +129,36 @@ def resample_world_img(
       radius_of_influence=50000)
 
 
+def goes_metadata(nc: xarray.DataArray) -> GoesMetadata:
+  """Get the metdata for channel dataset.
+
+  Args:
+    nc: The GOES image.
+
+  Returns:
+    A GoesImagerProjection
+  """
+  gip = nc['goes_imager_projection']
+  proj = GoesImagerProjection(
+      longitude_of_projection_origin = gip.longitude_of_projection_origin.data,
+      perspective_point_height = gip.perspective_point_height.data,
+      semi_major_axis = gip.semi_major_axis,
+      semi_minor_axis = gip.semi_minor_axis,
+      sweep_angle_axis = gip.sweep_angle_axis,
+      x_image_bounds = tuple(nc['x_image_bounds'].data),
+      y_image_bounds = tuple(nc['y_image_bounds'].data))
+  time_coverage_start = str(nc['time_coverage_start'].data)
+  time_coverage_start = dateutil.parser.parse(time_coverage_start)
+  md = GoesMetadata(
+      kappa0 = nc['kappa0'].data,
+      band_id = nc['band_id'].data,
+      time_coverage_start = time_coverage_start,
+      goes_imager_projection = proj)
+  return md
+
+
 def goes_area_definition(
-    md: Dict[Text, Any], shape: Optional[Tuple[int, int]]) -> pyresample.geometry.AreaDefinition:
+    proj: GoesImagerProjection, shape: Tuple[int, int]) -> pyresample.geometry.AreaDefinition:
   """Get the area definition for the satellite image.
 
   Args:
@@ -142,16 +171,12 @@ def goes_area_definition(
   # Dee the following references for GOES imager.
   #  Ref-1: https://proj4.org/usage/projections.html
   #  Ref-2: https://proj4.org/operations/projections/geos.html
-  proj_lon_0 = md['goes_imager_projection'].longitude_of_projection_origin
-  proj_h_0_m = md['goes_imager_projection'].perspective_point_height  # meters
-  if shape is None:
-    nx = md['x'].shape[0]
-    ny = md['y'].shape[0]
-  else:
-    ny, nx = shape
-  x1, x2 = md['x_image_bounds'].data * proj_h_0_m
-  y2, y1 = md['y_image_bounds'].data * proj_h_0_m
+  proj_lon_0 = proj.longitude_of_projection_origin
+  proj_h_0_m = proj.perspective_point_height  # meters
+  x1, x2 = proj.x_image_bounds * proj_h_0_m
+  y2, y1 = proj.y_image_bounds * proj_h_0_m
   extents_m = [x1, y1, x2, y2]
+  ny, nx = shape
   grid = pyresample.geometry.AreaDefinition(
       'geos',
       'goes_conus',
@@ -160,13 +185,11 @@ def goes_area_definition(
        'units': 'm',  # 'meters'
        'h': str(proj_h_0_m),  # height of the view point above Earth
        'lon_0': str(proj_lon_0),  # longitude of the proj center
-       'a': str(md['goes_imager_projection'].semi_major_axis),
-       'b': str(md['goes_imager_projection'].semi_minor_axis),
-       'sweep': str(md['goes_imager_projection'].sweep_angle_axis),
+       'a': str(proj.semi_major_axis),
+       'b': str(proj.semi_minor_axis),
+       'sweep': str(proj.sweep_angle_axis),
       },
-      nx,
-      ny,
-      extents_m)
+      nx, ny, extents_m)
   return grid
 
 
@@ -244,7 +267,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     img = skimage.transform.resize(img, self.shape, mode='reflect', anti_aliasing=True)
     return (img * MAX_COLOR_VALUE).astype(np.uint8)
 
-  def _load_image(self, blob: gcs.Blob) -> Tuple[np.ndarray, Dict[Text, Any]]:
+  def _load_image(self, blob: gcs.Blob) -> Tuple[np.ndarray, GoesMetadata]:
     bid = blob.id
     if bid in self.cache:
       return self.cache[bid]
@@ -255,18 +278,14 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       with xarray.open_dataset(infile) as nc:
         img = self._resample_image(nc)
         logging.info('resampled %s', bid)
-        md = {}
-        for k in METADATA_KEYS:
-          if k in nc.data_vars or k in nc.coords:
-            md[k] = nc[k].copy()
-
-        v = (img, md)
+        md = goes_metadata(nc)
+        v = img, md
         self.cache[bid] = v
         return v
 
   def load_channel_images(
       self, t: datetime.datetime, channels: List[int]) -> Optional[Dict[
-          int, Tuple[np.ndarray, Dict[Text, Any]]]]:
+          int, Tuple[np.ndarray, GoesMetadata]]]:
     """Load the GOES channels.
 
     Args:
@@ -291,10 +310,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       imgs[c] = (img, md)
     return imgs
 
-  def load_world_img_from_url(
-      self,
-      world_map: Text,
-      grid: pyresample.geometry.AreaDefinition) -> np.ndarray:
+  def load_world_img_from_url(self, world_map: Text, md: GoesMetadata) -> np.ndarray:
     """Fetch the world map image from a URL.
 
     Args:
@@ -304,16 +320,17 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     Returns:
       A numpy RGB image.
     """
-    img = self.world_imgs.get(world_map)
-    if img is None:
+    img, img_md = self.world_imgs.get(world_map)
+    if img is None or not np.isclose(img_md, md):
       with file_util.mktemp(dir=self.tmp_dir, suffix='.jpg') as infile:
         urllib.request.urlretrieve(world_map, infile)
         img = skimage.io.imread(infile)
+        grid = goes_area_definition(md.goes_imager_projection, self.shape)
         img = resample_world_img(img, grid)
-        self.world_imgs[world_map] = img
+        self.world_imgs[world_map] = img, md
     return img
 
-  def cloud_mask(self, t: datetime.datetime) -> Optional[np.ndarray]:
+  def cloud_mask(self, t: datetime.datetime) -> Optional[Tuple[np.ndarray, GoesMetadata]]:
     """Construct a cloud mask image for the specified time.
 
     Args:
@@ -326,12 +343,13 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     imgs = self.load_channel_images(t, [1])
     if imgs is None:
       return None
-    img, _ = imgs[1]
+    img, md = imgs[1]
     img = np.sqrt(img.astype(np.float32) / 256)
     mask = 1 / (1 + np.exp(-10 * (img - 0.3)))
-    return (img * mask * MAX_COLOR_VALUE).astype(np.uint8)
+    img = (img * mask * MAX_COLOR_VALUE).astype(np.uint8)
+    return img, md
 
-  def raw_image(self, t: datetime.datetime, channels: List[int]) -> Optional[Tuple[np.ndarray, Dict[Text, Any]]]:
+  def raw_image(self, t: datetime.datetime, channels: List[int]) -> Optional[Tuple[np.ndarray, GoesMetadata]]:
     """Load the GOES channels and flatten them into a multi-channel image.
 
     Args:
@@ -349,7 +367,5 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     for c in channels:
       img, md = table[c]
       imgs.append(img)
-    return np.stack(imgs, axis=-1), md
-
-  def goes_area_definition(self, md: Dict[Text, Any]) -> pyresample.geometry.AreaDefinition:
-    return goes_area_definition(md, self.shape)
+    img = np.stack(imgs, axis=-1)
+    return img, md

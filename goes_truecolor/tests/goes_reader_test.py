@@ -89,7 +89,7 @@ class GoesReaderTest(absltest.TestCase):
     table = reader.load_channel_images(t, [1])
     img, md = table[1]
     self.assertEqual((4, 4), img.shape)
-    self.assertAlmostEqual(1e-2, md['kappa0'])
+    self.assertAlmostEqual(1e-2, md.kappa0)
 
   def test_cloud_mask(self):
     """Test GoesReader.cloud_mask."""
@@ -103,7 +103,7 @@ class GoesReaderTest(absltest.TestCase):
         shape=(4, 4),
         tmp_dir=self.tmp_dir,
         client=self.client)
-    mask = reader.cloud_mask(t)
+    mask, _ = reader.cloud_mask(t)
     self.assertEqual((4, 4), mask.shape)
 
   def test_raw_image(self):

@@ -163,10 +163,12 @@ class CreateTFExamples(beam.DoFn):
     mask_img = self.reader.cloud_mask(t)
     if mask_img is None:
       return
+    mask_img, _ = mask_img
     logging.info('creating IR image for %s', t)
-    ir, _ = self.reader.raw_image(t, self.ir_channels)
+    ir = self.reader.raw_image(t, self.ir_channels)
     if ir is None:
       return
+    ir, _ = ir
 
     # Split into tiles and generate tensorflow examples.
     logging.info('creating tiles for %s', t)
