@@ -6,7 +6,6 @@ from __future__ import print_function
 from typing import Any, Dict, List, Optional, Text, Tuple
 
 import logging
-import os
 import re
 import tempfile
 import urllib
@@ -62,18 +61,9 @@ GoesFile = collections.namedtuple('GoesFile', [
     'start_date', 'end_date', 'creation_date'
 ])
 
-GoesImagerProjection = collections.namedtuple('GoesImagerProjection', [
-    'longitude_of_projection_origin',
-    'perspective_point_height',
-    'x_image_bounds',
-    'y_image_bounds',
-    'semi_major_axis',
-    'semi_minor_axis',
-    'sweep_angle_axis',
-])
+GoesMetadata = Dict[Text, Any]
+GoesImagerProjection = Dict[Text, Any]
 
-GoesMetadata = collections.namedtuple('GoesMetadata', [
-    'kappa0', 'band_id', 'time_coverage_start', 'goes_imager_projection'])
 
 def _parse_filename(filename: Text) -> GoesFile:
   """Convert a filename to a GoesFile description.
@@ -136,24 +126,24 @@ def goes_metadata(nc: xarray.DataArray) -> GoesMetadata:
     nc: The GOES image.
 
   Returns:
-    A GoesImagerProjection
+    A dictionary of type GoesMetadata.
   """
   gip = nc['goes_imager_projection']
-  proj = GoesImagerProjection(
-      longitude_of_projection_origin = gip.longitude_of_projection_origin.data,
-      perspective_point_height = gip.perspective_point_height.data,
-      semi_major_axis = gip.semi_major_axis,
-      semi_minor_axis = gip.semi_minor_axis,
-      sweep_angle_axis = gip.sweep_angle_axis,
-      x_image_bounds = tuple(nc['x_image_bounds'].data),
-      y_image_bounds = tuple(nc['y_image_bounds'].data))
+  proj = dict(
+      longitude_of_projection_origin=gip.longitude_of_projection_origin,
+      perspective_point_height=gip.perspective_point_height,
+      semi_major_axis=gip.semi_major_axis,
+      semi_minor_axis=gip.semi_minor_axis,
+      sweep_angle_axis=gip.sweep_angle_axis,
+      x_image_bounds=list(nc['x_image_bounds'].data),
+      y_image_bounds=list(nc['y_image_bounds'].data))
   time_coverage_start = str(nc['time_coverage_start'].data)
   time_coverage_start = dateutil.parser.parse(time_coverage_start)
-  md = GoesMetadata(
-      kappa0 = nc['kappa0'].data,
-      band_id = nc['band_id'].data,
-      time_coverage_start = time_coverage_start,
-      goes_imager_projection = proj)
+  md = dict(
+      kappa0=nc['kappa0'].data,
+      band_id=nc['band_id'].data,
+      time_coverage_start=time_coverage_start,
+      goes_imager_projection=proj)
   return md
 
 
@@ -171,10 +161,10 @@ def goes_area_definition(
   # Dee the following references for GOES imager.
   #  Ref-1: https://proj4.org/usage/projections.html
   #  Ref-2: https://proj4.org/operations/projections/geos.html
-  proj_lon_0 = proj.longitude_of_projection_origin
-  proj_h_0_m = proj.perspective_point_height  # meters
-  x1, x2 = proj.x_image_bounds * proj_h_0_m
-  y2, y1 = proj.y_image_bounds * proj_h_0_m
+  proj_lon_0 = proj['longitude_of_projection_origin']
+  proj_h_0_m = proj['perspective_point_height']  # meters
+  x1, x2 = proj['x_image_bounds'] * proj_h_0_m
+  y2, y1 = proj['y_image_bounds'] * proj_h_0_m
   extents_m = [x1, y1, x2, y2]
   ny, nx = shape
   grid = pyresample.geometry.AreaDefinition(
@@ -185,12 +175,32 @@ def goes_area_definition(
        'units': 'm',  # 'meters'
        'h': str(proj_h_0_m),  # height of the view point above Earth
        'lon_0': str(proj_lon_0),  # longitude of the proj center
-       'a': str(proj.semi_major_axis),
-       'b': str(proj.semi_minor_axis),
-       'sweep': str(proj.sweep_angle_axis),
+       'a': str(proj['semi_major_axis']),
+       'b': str(proj['semi_minor_axis']),
+       'sweep': str(proj['sweep_angle_axis']),
       },
       nx, ny, extents_m)
   return grid
+
+
+def flatten_channel_images(
+    table: Dict[int, Tuple[np.ndarray, GoesMetadata]],
+    channels: List[int]) -> Tuple[np.ndarray, GoesMetadata]:
+  """Flatten a set of channels into a single numpy array.
+
+  Args:
+    table: a dictionary mapping channel number to image and metadata.
+    channels: a list of channels to flatten.
+
+  Returns:
+    A pair (img, metadata) of a flattened image and its metadata.
+  """
+  imgs = []
+  for c in channels:
+    img, md = table[c]
+    imgs.append(img)
+  img = np.stack(imgs, axis=-1)
+  return img, md
 
 
 class GoesReader(object):  # pylint: disable=useless-object-inheritance
@@ -199,8 +209,10 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
   # pylint: disable=too-many-instance-attributes
   def __init__(
       self,
-      project_id: Text, goes_bucket_name: Text = GOES_BUCKET,
-      key: Text = 'Rad', shape: Tuple[int, int] = (512, 512),
+      project_id: Text,
+      goes_bucket_name: Text = GOES_BUCKET,
+      key: Text = 'Rad',
+      shape: Tuple[int, int] = (512, 512),
       tmp_dir: Optional[Text] = None,
       client: Optional[gcs.Client] = None):
     """Create a GoesReader.
@@ -310,6 +322,32 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       imgs[c] = (img, md)
     return imgs
 
+  def load_channel_images_from_files(
+      self, channel_table: Dict[int, Text], channels: List[int]) -> Dict[
+          int, Tuple[np.ndarray, GoesMetadata]]:
+    """Load the GOES channels.
+
+    Args:
+      file_table: a dictionary mapping channels to filenames.
+      channels: a list of pairs (channel, filename) to load.
+
+    Returns:
+      A dictionary mapping channel number to pairs (img, md), where img is the
+      channel image, and md is the metadata.
+    """
+    bucket = self.client.get_bucket(self.goes_bucket_name)
+    imgs = {}
+    for c in channels:
+      if c in channel_table:
+        blob_name = channel_table[c]
+        blob = bucket.blob(blob_name)
+        img, md = self._load_image(blob)
+      else:
+        img = np.zeros(self.shape, dtype=np.uint8)
+        md = {}
+      imgs[c] = (img, md)
+    return imgs
+
   def load_world_img_from_url(self, world_map: Text, md: GoesMetadata) -> np.ndarray:
     """Fetch the world map image from a URL.
 
@@ -349,7 +387,10 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     img = (img * mask * MAX_COLOR_VALUE).astype(np.uint8)
     return img, md
 
-  def raw_image(self, t: datetime.datetime, channels: List[int]) -> Optional[Tuple[np.ndarray, GoesMetadata]]:
+  def raw_image(
+      self,
+      t: datetime.datetime,
+      channels: List[int]) -> Optional[Tuple[np.ndarray, GoesMetadata]]:
     """Load the GOES channels and flatten them into a multi-channel image.
 
     Args:
@@ -363,9 +404,4 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     table = self.load_channel_images(t, channels)
     if table is None:
       return None
-    imgs = []
-    for c in channels:
-      img, md = table[c]
-      imgs.append(img)
-    img = np.stack(imgs, axis=-1)
-    return img, md
+    return flatten_channel_images(table, channels)

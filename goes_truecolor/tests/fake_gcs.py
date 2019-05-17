@@ -14,7 +14,7 @@ class FakeBlob():  # pylint: disable=too-few-public-methods
   """Fake gcs.Blob"""
 
   def __init__(self, id: Text):  # pylint: disable=redefined-builtin
-    self.id = id  # pylint: disable=invalid-name
+    self.id = id  # pylint: disable=invalid-name,redefined-builtin
 
   def download_to_filename(self, filename: Text):
     """Copy the blob to a file."""
@@ -26,6 +26,10 @@ class FakeBucket():  # pylint: disable=too-few-public-methods
 
   def __init__(self, dirname: Text):
     self.dirname = dirname
+
+  def blob(self, bid: Text) -> FakeBlob:
+    """Fetch a blob from the name."""
+    return FakeBlob(bid)
 
   def list_blobs(self, prefix: Text) -> Generator[FakeBlob, None, None]:
     """List the blobs in the bucket."""

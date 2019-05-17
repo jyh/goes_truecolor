@@ -107,11 +107,15 @@ class CustomCommands(setuptools.Command):
 # restriction is specified.
 REQUIRED_PACKAGES = [
     'absl-py',
+    'apache_beam[gcp]',
     'dateparser',
     'netcdf4',
     'xarray',
     'pyresample',
+    'google-api-core',
+    'google-cloud-datastore',
     'google-cloud-storage',
+    'googledatastore',
     'scikit-image',
     'tensorflow',
 ]

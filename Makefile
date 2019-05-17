@@ -13,10 +13,11 @@
 .PHONY: typecheck lint run_local run_dataflow test
 
 typecheck:
-	pytype -P . `find . -name "*.py" -print`
+	pytype -P . goes_truecolor/beam/make_truecolor_examples.py
+	pytype -P . goes_truecolor/beam/make_cloud_mask.py
 
 lint:
-	pylint goes_truecolor/beam/make_truecolor_examples.py
+	pylint `find goes_truecolor -name "*.py"`
 
 run_local:
 	python -m goes_truecolor.beam.make_truecolor_examples \
@@ -26,9 +27,16 @@ run_local:
 		--test_end_date="2/1/2018 17:00" \
 		--num_shards=1
 
+run_cloud_masks_local:
+	python -m goes_truecolor.beam.make_cloud_masks \
+		--start_date="1/1/2018 17:00" \
+		--end_date="1/1/2018 17:00"
+
 run_dataflow:
 	python -m goes_truecolor.beam.make_truecolor_examples --runner=DataflowRunner
 
 test:
-	python -m goes_truecolor.tests.goes_reader_test
-	python -m goes_truecolor.tests.make_truecolor_examples_test
+	python -m goes_truecolor.lib.goes_predict_test
+	python -m goes_truecolor.lib.goes_reader_test
+	python -m goes_truecolor.beam.make_truecolor_examples_test
+	python -m goes_truecolor.beam.make_cloud_masks_test

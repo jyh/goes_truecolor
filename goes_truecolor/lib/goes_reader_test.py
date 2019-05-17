@@ -89,7 +89,28 @@ class GoesReaderTest(absltest.TestCase):
     table = reader.load_channel_images(t, [1])
     img, md = table[1]
     self.assertEqual((4, 4), img.shape)
-    self.assertAlmostEqual(1e-2, md.kappa0)
+    self.assertAlmostEqual(1e-2, md['kappa0'])
+
+  def test_load_channel_images_from_files(self):
+    """Test GoesReader.load_channel_images_from_files."""
+    utc = dateutil.tz.tzutc()
+    t = datetime.datetime(2018, 1, 1, 12, 15, 0, tzinfo=utc)
+    channel = 1
+    self.create_fake_goes_image(t, channel)
+
+    reader = goes_reader.GoesReader(
+        project_id='test',
+        shape=(4, 4),
+        tmp_dir=self.tmp_dir,
+        client=self.client)
+    start_time = t - datetime.timedelta(hours=1)
+    end_time = t + datetime.timedelta(hours=1)
+    [(_, blob_table)] = reader.list_time_range(start_time, end_time)
+    file_table = {c:b.id for c, b in blob_table.items()}
+    table = reader.load_channel_images_from_files(file_table, [1])
+    img, md = table[1]
+    self.assertEqual((4, 4), img.shape)
+    self.assertAlmostEqual(1e-2, md['kappa0'])
 
   def test_cloud_mask(self):
     """Test GoesReader.cloud_mask."""
