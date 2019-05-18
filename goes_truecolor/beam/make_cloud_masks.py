@@ -15,7 +15,6 @@ from absl import app
 from absl import flags
 
 import apache_beam as beam
-from apache_beam.io.gcp.datastore.v1 import datastoreio
 import dateparser
 import dateutil
 import netCDF4  # pylint: disable=unused-import
@@ -23,10 +22,7 @@ import numpy as np  # pylint: disable=unused-import
 from PIL import Image
 import tensorflow as tf  # pylint: disable=unused-import
 
-from google.cloud.proto.datastore.v1 import entity_pb2
-from google.cloud import datastore
 from google.cloud import storage as gcs
-from googledatastore import helper as datastore_helper
 
 from goes_truecolor.lib import goes_reader  # pylint: disable=unused-import
 from goes_truecolor.learning import hparams  # pylint: disable=unused-import
@@ -47,6 +43,18 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     'model_dir', 'gs://weather-datasets/model/export/exporter',
     'Directory containing the model')
+
+flags.DEFINE_string(
+    'output_bucket', 'weather-datasets',
+    'Bucket containing the output')
+
+flags.DEFINE_string(
+    'output_dir', 'cloud_masks',
+    'Directory containing the output cloud masks')
+
+flags.DEFINE_string(
+    'output_summary', 'gs://weather-datasets/cloud_masks_summary',
+    'Output summary file')
 
 flags.DEFINE_string(
     'runner', 'DirectRunner',
@@ -90,10 +98,11 @@ class CreateCloudMasks(beam.DoFn):
       tile_size: int,
       tile_border_size: int,
       model_dir: Text,
+      output_bucket: Text,
+      output_dir: Text,
       ir_channels: List[int],
       tmp_dir: Optional[Text] = None,
-      gcs_client: Optional[gcs.Client] = None,
-      ds_client: Optional[datastore.Client] = None):
+      gcs_client: Optional[gcs.Client] = None):
     # pylint: disable=super-init-not-called
     """Read a GOES snapshot and construct a cloud mask.
 
@@ -104,9 +113,10 @@ class CreateCloudMasks(beam.DoFn):
       tile_size: the size of each example (square)
       ir_channels: the IR channels.
       model_dir: the directory containing the model.
+      output_bucket: the output bucket.
+      output_dir: the output directory.
       tmp_dir: a temporary directory.
       gcs_client: the GCS client object (for testing)
-      ds_client: the Datastore client (for testing)
     """
     self.project_id = project_id
     self.goes_bucket_name = goes_bucket_name
@@ -114,21 +124,25 @@ class CreateCloudMasks(beam.DoFn):
     self.tile_size = tile_size
     self.tile_border_size = tile_border_size
     self.model_dir = model_dir
+    self.output_bucket = output_bucket
+    self.output_dir = output_dir
     self.ir_channels = ir_channels
     self.reader = None
     self.tmp_dir = tmp_dir
     self.gcs_client = gcs_client
-    self.ds_client = ds_client
     self.model = None
 
   # pylint: disable=arguments-differ,too-many-locals
   def process(
-      self, files: Tuple[datetime.datetime, Dict[int, Text]]) -> Generator[datastore.Entity, None, None]:
+      self, files: Tuple[datetime.datetime, Dict[int, Text]]) -> Generator[Text, None, None]:
     # pylint: disable=reimported,redefined-outer-name
+    import io
     import logging
     import numpy as np
+    import os
     from PIL import Image
-    from google.cloud import datastore
+    from google.api_core import client_info
+    from google.cloud import storage as gcs
     from goes_truecolor.lib import goes_predict
     from goes_truecolor.lib import goes_reader
 
@@ -142,7 +156,7 @@ class CreateCloudMasks(beam.DoFn):
       self.reader = goes_reader.GoesReader(
           project_id=self.project_id,
           goes_bucket_name=self.goes_bucket_name, shape=shape,
-          tmp_dir=self.tmp_dir, client=self.gcs_client)
+          tmp_dir=self.tmp_dir, client=self.gcs_client, cache=False)
 
     # Fetch the model.
     if self.model is None:
@@ -150,8 +164,8 @@ class CreateCloudMasks(beam.DoFn):
           self.model_dir, self.tile_size, self.tile_border_size)
 
     # Datastore client.
-    if self.ds_client is None:
-      self.ds_client = datastore.Client(project=self.project_id)
+    if self.gcs_client is None:
+      self.gcs_client = gcs.Client(project=self.project_id)
 
     # Fetch the images and perform the prediction.
     logging.info('creating IR image')
@@ -159,20 +173,20 @@ class CreateCloudMasks(beam.DoFn):
     ir_img, md = goes_reader.flatten_channel_images(ir, self.ir_channels)
     cloud_img = self.model.predict(ir_img)
 
-    # Create the image entity.
+    # Get jpeg bytes.
     cloud_img = Image.fromarray(cloud_img)
     buf = io.BytesIO()
     cloud_img.save(buf, format='JPEG', quality=70)
+    buf = buf.getvalue()
 
+    # Write to a file.
     t = md['time_coverage_start']
-    key = self.ds_client.key('CloudMask', t.isoformat())
-    entity = entity_pb2.Entity()
-    datastore_helper.add_key_path(entity.key, 'CloudMask', t.isoformat())
-    datastore_helper.add_properties(entity, {
-        'mask_jpeg': buf.getvalue(),
-        'goes_imager_projection': md['goes_imager_projection'],
-        })
-    yield entity
+    dirname = t.strftime('%Y/%j')
+    filename = os.path.join(self.output_dir, t.strftime('%Y/%j'), t.isoformat() + '.jpg')
+    bucket = self.gcs_client.get_bucket(self.output_bucket)
+    blob = bucket.blob(filename)
+    blob.upload_from_string(buf)
+    yield filename
 
 
 def main(unused_argv):
@@ -188,21 +202,26 @@ def main(unused_argv):
       goes_bucket_name=FLAGS.goes_bucket,
       shape=(FLAGS.image_size, FLAGS.image_size))
   files = reader.list_time_range(start_date, end_date)
-  files = [(t, {c:b.id for c, b in table.items()}) for t, table in files]
 
   # Create the beam pipeline.
   options = {'staging_location': os.path.join(FLAGS.tmp_dir, 'tmp', 'staging'),
              'temp_location': os.path.join(FLAGS.tmp_dir, 'tmp'),
-             'job_name': datetime.datetime.now().strftime('truecolor-%y%m%d-%H%M%S'),
+             'job_name': datetime.datetime.now().strftime('cloud-masks-%y%m%d-%H%M%S'),
              'project': FLAGS.project,
              'num_workers': 1,
              'max_num_workers': FLAGS.max_workers,
-             'machine_type': 'n1-highmem-4',
+             'machine_type': 'n1-standard-4',
              'setup_file': os.path.join(
                  os.path.dirname(os.path.abspath(__file__)), '../../setup.py'),
              'teardown_policy': 'TEARDOWN_ALWAYS',
              'save_main_session': False}
   opts = beam.pipeline.PipelineOptions(flags=[], **options)
+
+  # Run the beam pipeline.
+  # with beam.Pipeline(FLAGS.runner, options=opts) as p:
+  #   (p  # pylint: disable=expression-not-assigned
+  #    | beam.io.ReadFromPubSub( 'projects/gcp-public-data---goes-16/topics/gcp-public-data-goes-16')
+  #    | beam.FlatMap(lambda s: print(s)))
 
   # Run the beam pipeline.
   with beam.Pipeline(FLAGS.runner, options=opts) as p:
@@ -215,8 +234,10 @@ def main(unused_argv):
          tile_size=FLAGS.tile_size,
          tile_border_size=FLAGS.tile_border_size,
          ir_channels=goes_reader.IR_CHANNELS,
-         model_dir=FLAGS.model_dir))
-     | datastoreio.WriteToDatastore(FLAGS.project))
+         model_dir=FLAGS.model_dir,
+         output_bucket=FLAGS.output_bucket,
+         output_dir=FLAGS.output_dir))
+     | beam.io.WriteToText(FLAGS.output_summary))
 
 
 if __name__ == '__main__':

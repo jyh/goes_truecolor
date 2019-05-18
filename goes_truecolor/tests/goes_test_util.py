@@ -56,7 +56,7 @@ def create_fake_goes_image(tmp_dir: Text, t: datetime.datetime, channel: int) ->
     f.create_dataset('Rad', data=data)
     f.create_dataset('band_id', data=channel)
     f.create_dataset('kappa0', data=[1e-2])
-    f.create_dataset('time_coverage_start', data=t.isoformat())
+    f.attrs['time_coverage_start'] = t.isoformat()
     proj = f.create_dataset('goes_imager_projection', [0])
     proj.attrs['semi_major_axis'] = 6378137.0
     proj.attrs['semi_minor_axis'] = 6356752.31414

@@ -7,7 +7,7 @@
 # I fixed this by installing llvm.
 #
 # $ brew install llvm gcc
-# $ export CC=/usr/local/opt/gcc/bin/gcc-9 CXX=/usr/local/opt/gcc/bin/g++-9
+# $ export CC=`which gcc-9` CXX=`which g++-9`
 # $ pip install pyresample
 
 .PHONY: typecheck lint run_local run_dataflow test
@@ -19,7 +19,7 @@ typecheck:
 lint:
 	pylint `find goes_truecolor -name "*.py"`
 
-run_local:
+run_truecolor_local:
 	python -m goes_truecolor.beam.make_truecolor_examples \
 		--train_start_date="1/1/2018 17:00" \
 		--train_end_date="1/1/2018 17:00" \
@@ -27,13 +27,19 @@ run_local:
 		--test_end_date="2/1/2018 17:00" \
 		--num_shards=1
 
+run_truecolor_dataflow:
+	python -m goes_truecolor.beam.make_truecolor_examples --runner=DataflowRunner
+
 run_cloud_masks_local:
 	python -m goes_truecolor.beam.make_cloud_masks \
 		--start_date="1/1/2018 17:00" \
-		--end_date="1/1/2018 17:00"
+		--end_date="1/1/2018 17:15"
 
-run_dataflow:
-	python -m goes_truecolor.beam.make_truecolor_examples --runner=DataflowRunner
+run_cloud_masks_dataflow:
+	python -m goes_truecolor.beam.make_cloud_masks \
+		--start_date="1/1/2018 17:00" \
+		--end_date="1/2/2018 17:00" \
+    --runner=DataflowRunner
 
 test:
 	python -m goes_truecolor.lib.goes_predict_test

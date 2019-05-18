@@ -72,7 +72,7 @@ class GoesReaderTest(absltest.TestCase):
     end_time = t + datetime.timedelta(hours=1)
     [(actual_t, d)] = reader.list_time_range(start_time, end_time)
     self.assertEqual(t, actual_t)
-    self.assertEqual(filename, d[1].id)
+    self.assertEqual(filename, d[1])
 
   def test_load_channel_images(self):
     """Test GoesReader.load_channel_images."""
@@ -105,8 +105,7 @@ class GoesReaderTest(absltest.TestCase):
         client=self.client)
     start_time = t - datetime.timedelta(hours=1)
     end_time = t + datetime.timedelta(hours=1)
-    [(_, blob_table)] = reader.list_time_range(start_time, end_time)
-    file_table = {c:b.id for c, b in blob_table.items()}
+    [(_, file_table)] = reader.list_time_range(start_time, end_time)
     table = reader.load_channel_images_from_files(file_table, [1])
     img, md = table[1]
     self.assertEqual((4, 4), img.shape)

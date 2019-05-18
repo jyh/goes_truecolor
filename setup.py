@@ -107,23 +107,23 @@ class CustomCommands(setuptools.Command):
 # restriction is specified.
 REQUIRED_PACKAGES = [
     'absl-py',
-    'apache_beam[gcp]',
+    'apache_beam[gcp]>=2.12',
     'dateparser',
+    'google-api-core>=1.11',
+    'google-cloud-core>=1',
+    'google-cloud-storage>=1.16',
     'netcdf4',
-    'xarray',
+    'numpy',
     'pyresample',
-    'google-api-core',
-    'google-cloud-datastore',
-    'google-cloud-storage',
-    'googledatastore',
     'scikit-image',
     'tensorflow',
+    'xarray',
 ]
 
 setuptools.setup(
     name='truecolor',
     version='0.0.1',
-    description='Extract truecolor training set.',
+    description='Extract truecolor GOES images, day or night.',
     install_requires=REQUIRED_PACKAGES,
     packages=setuptools.find_packages(),
     cmdclass={

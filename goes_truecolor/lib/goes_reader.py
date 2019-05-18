@@ -135,13 +135,13 @@ def goes_metadata(nc: xarray.DataArray) -> GoesMetadata:
       semi_major_axis=gip.semi_major_axis,
       semi_minor_axis=gip.semi_minor_axis,
       sweep_angle_axis=gip.sweep_angle_axis,
-      x_image_bounds=list(nc['x_image_bounds'].data),
-      y_image_bounds=list(nc['y_image_bounds'].data))
-  time_coverage_start = str(nc['time_coverage_start'].data)
+      x_image_bounds=list(nc.x_image_bounds.data),
+      y_image_bounds=list(nc.y_image_bounds.data))
+  time_coverage_start = str(nc.time_coverage_start)
   time_coverage_start = dateutil.parser.parse(time_coverage_start)
   md = dict(
-      kappa0=nc['kappa0'].data,
-      band_id=nc['band_id'].data,
+      kappa0=nc.kappa0.data,
+      band_id=nc.band_id.data,
       time_coverage_start=time_coverage_start,
       goes_imager_projection=proj)
   return md
@@ -214,7 +214,8 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       key: Text = 'Rad',
       shape: Tuple[int, int] = (512, 512),
       tmp_dir: Optional[Text] = None,
-      client: Optional[gcs.Client] = None):
+      client: Optional[gcs.Client] = None,
+      cache: bool = False):
     """Create a GoesReader.
 
     Args:
@@ -230,12 +231,12 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     self.key = key
     self.shape = shape
     self.world_imgs = {}
-    self.cache = {}
+    self.cache = {} if cache else None
 
   def list_time_range(
       self, start_time: datetime.datetime, end_time: datetime.datetime) -> List[
-          Tuple[datetime.datetime, Dict[int, gcs.Blob]]]:
-    """List the blobs for GOES images within the given time range.
+          Tuple[datetime.datetime, Dict[int, Text]]]:
+    """List the filenames for GOES images within the given time range.
 
     Args:
       start_time: the beginning of the time range.
@@ -243,7 +244,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
 
     Returns:
       A list of time,channels pairs, where channels is a dictionary
-      mapping channing number to GCS blob.
+      mapping channing number to filename.
     """
     start_time = start_time.astimezone(UTC)
     end_time = end_time.astimezone(UTC)
@@ -260,11 +261,11 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     # Index them.
     channels = {}
     for b in blobs:
-      f = _parse_filename(b.id)
+      f = _parse_filename(b.name)
       if f.start_date < start_time or f.start_date >= end_time:
         continue
       channel_map = channels.setdefault(f.start_date, {})
-      channel_map[f.channel] = b
+      channel_map[f.channel] = b.name
     return sorted(channels.items())
 
   def _resample_image(self, nc: xarray.DataArray) -> np.ndarray:
@@ -280,8 +281,8 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     return (img * MAX_COLOR_VALUE).astype(np.uint8)
 
   def _load_image(self, blob: gcs.Blob) -> Tuple[np.ndarray, GoesMetadata]:
-    bid = blob.id
-    if bid in self.cache:
+    bid = blob.name
+    if self.cache and bid in self.cache:
       return self.cache[bid]
     with file_util.mktemp(dir=self.tmp_dir, suffix='.nc') as infile:
       logging.info('downloading %s', bid)
@@ -292,35 +293,9 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
         logging.info('resampled %s', bid)
         md = goes_metadata(nc)
         v = img, md
-        self.cache[bid] = v
+        if self.cache:
+          self.cache[bid] = v
         return v
-
-  def load_channel_images(
-      self, t: datetime.datetime, channels: List[int]) -> Optional[Dict[
-          int, Tuple[np.ndarray, GoesMetadata]]]:
-    """Load the GOES channels.
-
-    Args:
-      t: the observation time.
-      channels: the channels to load.
-
-    Returns:
-      A dictionary mapping channel number to pairs (img, md), where img is the
-      channel image, and md is the metadata.
-    """
-    blobs = self.list_time_range(t, t + datetime.timedelta(hours=1))
-    if not blobs:
-      return None
-    t, channel_table = blobs[0]
-    imgs = {}
-    for c in channels:
-      if c in channel_table:
-        img, md = self._load_image(channel_table[c])
-      else:
-        img = np.zeros(self.shape, dtype=np.uint8)
-        md = {}
-      imgs[c] = (img, md)
-    return imgs
 
   def load_channel_images_from_files(
       self, channel_table: Dict[int, Text], channels: List[int]) -> Dict[
@@ -347,6 +322,25 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
         md = {}
       imgs[c] = (img, md)
     return imgs
+
+  def load_channel_images(
+      self, t: datetime.datetime, channels: List[int]) -> Optional[Dict[
+          int, Tuple[np.ndarray, GoesMetadata]]]:
+    """Load the GOES channels.
+
+    Args:
+      t: the observation time.
+      channels: the channels to load.
+
+    Returns:
+      A dictionary mapping channel number to pairs (img, md), where img is the
+      channel image, and md is the metadata.
+    """
+    blobs = self.list_time_range(t, t + datetime.timedelta(hours=1))
+    if not blobs:
+      return None
+    _, channel_table = blobs[0]
+    return self.load_channel_images_from_files(channel_table, channels)
 
   def load_world_img_from_url(self, world_map: Text, md: GoesMetadata) -> np.ndarray:
     """Fetch the world map image from a URL.
