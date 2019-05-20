@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+  </head>
+
+  <body>
+    <h1>Hello</h1>
+    <p>
+      <ul>
+        {% for id in site_manager._list_date(2019, 1) %}
+        <li> <img src="{{ id }}">
+        {% endfor %}
+      </ul>
+    </p>
+  </body>
+</html>

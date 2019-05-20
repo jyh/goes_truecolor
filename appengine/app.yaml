@@ -1,0 +1,34 @@
+runtime: python27
+api_version: 1
+threadsafe: true
+
+libraries:
+- name: webapp2
+  version: latest
+- name: jinja2
+  version: latest
+- name: pytz
+  version: latest
+- name: ssl
+  version: latest
+
+handlers:
+- url: /
+  script: main.application
+
+- url: /cloud_masks/.*\.jpg
+  script: main.application
+
+- url: /static
+  static_dir: static
+
+- url: /favicon.ico
+  static_files: favicon.png
+  upload: favicon.png
+
+- url: /.*\.(html)$
+  script: main.application
+
+- url: /(.*\.(css|js|png|gif|jpg|xml|svg|xml))$
+  static_files: contents/\1
+  upload: .*\.(css|js|png|gif|jpg|xml|svg|xml)$

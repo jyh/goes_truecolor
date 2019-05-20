@@ -163,8 +163,8 @@ def goes_area_definition(
   #  Ref-2: https://proj4.org/operations/projections/geos.html
   proj_lon_0 = proj['longitude_of_projection_origin']
   proj_h_0_m = proj['perspective_point_height']  # meters
-  x1, x2 = proj['x_image_bounds'] * proj_h_0_m
-  y2, y1 = proj['y_image_bounds'] * proj_h_0_m
+  x1, x2 = np.array(proj['x_image_bounds']) * proj_h_0_m
+  y2, y1 = np.array(proj['y_image_bounds']) * proj_h_0_m
   extents_m = [x1, y1, x2, y2]
   ny, nx = shape
   grid = pyresample.geometry.AreaDefinition(
@@ -352,14 +352,17 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
     Returns:
       A numpy RGB image.
     """
-    img, img_md = self.world_imgs.get(world_map)
-    if img is None or not np.isclose(img_md, md):
+    p = self.world_imgs.get(world_map)
+    if p is None:
       with file_util.mktemp(dir=self.tmp_dir, suffix='.jpg') as infile:
         urllib.request.urlretrieve(world_map, infile)
         img = skimage.io.imread(infile)
-        grid = goes_area_definition(md.goes_imager_projection, self.shape)
+        proj = md['goes_imager_projection']
+        grid = goes_area_definition(proj, self.shape)
         img = resample_world_img(img, grid)
-        self.world_imgs[world_map] = img, md
+        self.world_imgs[world_map] = img, proj
+    else:
+      img, _ = p
     return img
 
   def cloud_mask(self, t: datetime.datetime) -> Optional[Tuple[np.ndarray, GoesMetadata]]:

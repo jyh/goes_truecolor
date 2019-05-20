@@ -32,13 +32,13 @@ run_truecolor_dataflow:
 
 run_cloud_masks_local:
 	python -m goes_truecolor.beam.make_cloud_masks \
-		--start_date="1/1/2018 17:00" \
-		--end_date="1/1/2018 17:15"
+		--start_date="1/1/2019 17:00" \
+		--end_date="1/1/2019 17:15"
 
 run_cloud_masks_dataflow:
 	python -m goes_truecolor.beam.make_cloud_masks \
-		--start_date="1/1/2018 17:00" \
-		--end_date="1/2/2018 17:00" \
+		--start_date="1/1/2019 00:00" \
+		--end_date="1/2/2019 00:00" \
     --runner=DataflowRunner
 
 test:
