@@ -2,16 +2,23 @@
 <html>
   <head>
     <meta charset="UTF-8">
+    <style>
+      .containerdiv { float: left; position: relative; width: 1024px; height: 1024px; }
+      .cornerimage { position: absolute; top: 0; left: 0; border: 0; }
+    </style>
   </head>
 
   <body>
-    <h1>Hello</h1>
+    <h1>GOES Truecolor for {{ date.strftime('%B %d, %Y') }} </h1>
     <p>
-      <ul>
-        {% for id in site_manager._list_date(2019, 1) %}
-        <li> <img src="{{ id }}">
-        {% endfor %}
-      </ul>
+      Select a date:
+      <form action="/" method="post">
+      <input type="date" id="start" name="date" value="{{date.strftime('%Y-%m-%d')}}" min="2019-01-01" max="2019-05-20">
+      <input type="submit">
+      </form>
+    </p>
+    <p>
+      <img src="/cloud_masks/{{date.year}}/{{date.month}}/{{date.day}}/animated.gif">
     </p>
   </body>
 </html>

@@ -79,7 +79,7 @@ flags.DEFINE_string(
     'Start date for collecting images')
 
 flags.DEFINE_string(
-    'end_date', '12/31/2018 17:00',
+    'end_date', '1/1/2018 17:00',
     'End date for collecting images (inclusive)')
 
 
@@ -171,6 +171,8 @@ class CreateCloudMasks(beam.DoFn):
     logging.info('creating IR image')
     ir = self.reader.load_channel_images_from_files(file_table, self.ir_channels)
     ir_img, md = goes_reader.flatten_channel_images(ir, self.ir_channels)
+    if 'time_coverage_start' not in md:
+      return
     cloud_img = self.model.predict(ir_img)
 
     # Get jpeg bytes.
@@ -181,8 +183,7 @@ class CreateCloudMasks(beam.DoFn):
 
     # Write to a file.
     t = md['time_coverage_start']
-    dirname = t.strftime('%Y/%j')
-    filename = os.path.join(self.output_dir, t.strftime('%Y/%j'), t.isoformat() + '.jpg')
+    filename = os.path.join(self.output_dir, t.strftime('%Y/%j/%Y%m%d_%H%M_%f.jpg'))
     bucket = self.gcs_client.get_bucket(self.output_bucket)
     blob = bucket.blob(filename)
     blob.upload_from_string(buf)

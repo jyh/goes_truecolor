@@ -11,12 +11,16 @@ libraries:
   version: latest
 - name: ssl
   version: latest
+- name: PIL
+  version: latest
+- name: numpy
+  version: 1.6.1
 
 handlers:
 - url: /
   script: main.application
 
-- url: /cloud_masks/.*\.jpg
+- url: /cloud_masks/(.*\.(gif|jpg))
   script: main.application
 
 - url: /static

@@ -37,9 +37,10 @@ run_cloud_masks_local:
 
 run_cloud_masks_dataflow:
 	python -m goes_truecolor.beam.make_cloud_masks \
-		--start_date="1/1/2019 00:00" \
-		--end_date="1/2/2019 00:00" \
-    --runner=DataflowRunner
+		--start_date="2/1/2019 00:00" \
+		--end_date="5/21/2019 00:00" \
+		--max_workers=100 \
+		--runner=DataflowRunner
 
 test:
 	python -m goes_truecolor.lib.goes_predict_test
