@@ -12,7 +12,7 @@ libraries:
 - name: ssl
   version: latest
 - name: PIL
-  version: latest
+  version: 1.1.7
 - name: numpy
   version: 1.6.1
 
