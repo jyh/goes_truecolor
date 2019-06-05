@@ -12,6 +12,7 @@ from PIL import Image
 import google.cloud.storage as gcs
 from google.appengine.api import app_identity
 
+PAGE_REGEX = r'.*/(\d+)/(\d+)/(\d+)/[^/]+[.]html'
 ANIMATED_GIF_REGEX = r'.*/cloud_masks/(\d+)/(\d+)/(\d+)/animated\.gif'
 ISO_TIME_REGEX = r'.*/(\d+)-(\d+)-(\d+).(\d+):(\d+):(\d+)([.](\d+))?([+]\d\d:\d\d)?[.]jpg'
 FILE_TIME_REGEX = r'.*/(\d\d\d\d)(\d\d)(\d\d)_(\d\d)(\d\d)_(\d+)[.]jpg'
@@ -45,7 +46,7 @@ class SiteManager(object):
 
   def list_blobs(self, count=None):
     # Parse the path.
-    m = re.match(ANIMATED_GIF_REGEX, self.page_name)
+    m = re.match(PAGE_REGEX, self.page_name)
     if m:
       t = datetime.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     else:

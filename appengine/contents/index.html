@@ -26,15 +26,14 @@
 @keyframes points {
 0% { opacity: 1; }
 {{100 / count}}% { opacity: 0; }
-100% { opacity: 1; }
 }
 {% for i, _, _ in blobs %}
-.Frame{{i}} { animation: points {{count}}s {{i}}s infinite normal step-end forwards; }
+.Frame-{{i}} { animation: points {{count}}s {{i}}s infinite normal step-end forwards; }
 {% endfor %}
 </style>
 {% for i, t, src in blobs %}
-<text class="heavy Frame{{i}}" x=10 y=30>{{ t.strftime('%Y/%m/%d %H:%M:%S') }}</text>
-<image class="Frame{{i}}" xlink:href="{{ src }}" x=0 y=36 width="1024px" height="1024px"/>
+<text class="heavy Frame-{{i}}" style="opacity:0;" x=10 y=30>{{ t.strftime('%Y/%m/%d %H:%M:%S') }}</text>
+<image class="Frame-{{i}}" xlink:href="{{ src }}" x=0 y=36 width="1024px" height="1024px" style="opacity:0;"/>
 {% endfor %}
 </svg>
     </p>
