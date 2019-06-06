@@ -2,7 +2,6 @@ import datetime
 import flask
 import logging
 import urllib.parse
-import re
 
 from typing import Text
 
@@ -39,7 +38,6 @@ def handle_gif(year: int, month: int, day: int, filename: Text) -> flask.Respons
   response = flask.make_response(img)
   response.headers.set('Content-Type', 'image/gif')
   return response  
-
 
   
 if __name__ == '__main__':

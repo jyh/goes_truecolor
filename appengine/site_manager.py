@@ -9,6 +9,8 @@ import tempfile
 import numpy as np
 from PIL import Image
 
+from typing import Optional, List, Text, Tuple
+
 import google.cloud.storage as gcs
 
 PAGE_REGEX = r'.*/(\d+)/(\d+)/(\d+)/[^/]+[.]html'
@@ -16,8 +18,13 @@ ANIMATED_GIF_REGEX = r'.*/cloud_masks/(\d+)/(\d+)/(\d+)/animated\.gif'
 ISO_TIME_REGEX = r'.*/(\d+)-(\d+)-(\d+).(\d+):(\d+):(\d+)([.](\d+))?([+]\d\d:\d\d)?[.]jpg'
 FILE_TIME_REGEX = r'.*/(\d\d\d\d)(\d\d)(\d\d)_(\d\d)(\d\d)_(\d+)[.]jpg'
 
+# AppEngine has pretty severe memory restrictions, so limit the number of frames to
+# add to an animated gif.
+ANIMATED_GIF_MAX_FRAMES = 12
 
-def _parse_date(s):
+
+def _parse_date(s: Text) -> datetime.datetime:
+  """Convert a filename to a datetime."""
   m = re.match(ISO_TIME_REGEX, s)
   if m:
     return datetime.datetime(
@@ -35,21 +42,28 @@ def _parse_date(s):
   raise ValueError('invalid date {}'.format(s))
 
 
-class SiteManager(object):
+class SiteManager():
   """Methods to manage the site."""
 
-  def __init__(self, page_name):
+  def __init__(self, page_name: Text):
     self.page_name = page_name
     self.bucket_name = 'weather-datasets'
     self.client = gcs.Client()
 
-  def list_blobs(self, count=None):
+  def list_blobs(self, count: Optional[int] = None) -> List[Tuple[int, datetime.datetime, Text]]:
+    """Return a list of cloud images for the current date.
+
+    Args:
+      count: the number of results to return.
+
+    Returns:
+      A sequence of triples (i, t, name), where <i> is the number of the item,
+      <t> is its timestamp, and <name> is the name of he GCS blob.
+    """
     # Parse the path.
     m = re.match(PAGE_REGEX, self.page_name)
-    if m:
-      t = datetime.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-    else:
-      t = datetime.datetime(2019, 1, 1)
+    t = (datetime.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m
+         else datetime.datetime(2019, 1, 1))
     tm = t.timetuple()
 
     # Get all the files for the day.
@@ -65,7 +79,7 @@ class SiteManager(object):
     # Parse the times
     return [(i, _parse_date(name), name) for i, name in enumerate(names)]
 
-  def world_img(self):
+  def world_img(self) -> np.ndarray:
     """Fetch the world map.
 
     For now, we assume the world map is static.
@@ -77,7 +91,8 @@ class SiteManager(object):
     img = Image.open(f)
     return np.array(img)
 
-  def cloud_mask_jpeg(self):
+  def cloud_mask_jpeg(self) -> bytes:
+    """Return the current image in JPEG format."""
     # Get the world map.
     world_img = self.world_img()
     world_img = np.array(world_img, dtype=np.float32) / 256
@@ -103,7 +118,8 @@ class SiteManager(object):
     img.save(f, 'JPEG')
     return f.getvalue()
 
-  def animated_gif(self):
+  def animated_gif(self) -> bytes:
+    """Return an animated GIF of images for the current day."""
     # Parse the path.
     m = re.match(ANIMATED_GIF_REGEX, self.page_name)
     if not m:
@@ -119,11 +135,16 @@ class SiteManager(object):
     # Get all the files for the day.
     bucket = self.client.bucket(self.bucket_name)
     prefix = 'cloud_masks/{:04d}/{:03d}'.format(tm.tm_year, tm.tm_yday)
-    blobs = bucket.list_blobs(prefix=prefix)
+    blobs = list(bucket.list_blobs(prefix=prefix))
+
+    # Limit the number of frames.
+    n = len(blobs)
+    if n > ANIMATED_GIF_MAX_FRAMES:
+      blobs = [blobs[(i * n) // ANIMATED_GIF_MAX_FRAMES] for i in range(ANIMATED_GIF_MAX_FRAMES)]
 
     # Image compositing.
     images = []
-    for b in itertools.islice(blobs, 0, None, 8):
+    for b in blobs:
       s = b.download_as_string()
       f = io.BytesIO(s)
       lum = Image.open(f)
