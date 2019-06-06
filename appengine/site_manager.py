@@ -10,7 +10,6 @@ import numpy as np
 from PIL import Image
 
 import google.cloud.storage as gcs
-from google.appengine.api import app_identity
 
 PAGE_REGEX = r'.*/(\d+)/(\d+)/(\d+)/[^/]+[.]html'
 ANIMATED_GIF_REGEX = r'.*/cloud_masks/(\d+)/(\d+)/(\d+)/animated\.gif'
@@ -83,7 +82,7 @@ class SiteManager(object):
     world_img = self.world_img()
     world_img = np.array(world_img, dtype=np.float32) / 256
 
-    # Get all the files for the day.
+    # Get the mask file.
     bucket = self.client.bucket(self.bucket_name)
     blob = bucket.blob(self.page_name[1:])
     s = blob.download_as_string()
@@ -92,18 +91,17 @@ class SiteManager(object):
     lum = np.array(lum)
     lum = lum.astype(np.float32) / 256
     lum = lum[:, :, np.newaxis]
+
+    # Generate the composite.
     mask = 1 / (1 + np.exp(-10 * (lum - 0.3)))
     img = lum * mask + (1 - mask) * world_img
     img = (img * 255).astype(np.uint8)
     img = Image.fromarray(img)
 
-    # The old PIL used by AppEngine can only save to a real file, not BytesIO.
-    fd = tempfile.TemporaryFile(suffix='.jpg')
-    img.save(fd, 'JPEG')
-    fd.seek(0)
-    s = fd.read()
-    fd.close()
-    return s
+    # Convert to JPEG.
+    f = io.BytesIO()
+    img.save(f, 'JPEG')
+    return f.getvalue()
 
   def animated_gif(self):
     # Parse the path.
@@ -125,7 +123,7 @@ class SiteManager(object):
 
     # Image compositing.
     images = []
-    for b in itertools.islice(blobs, 0, None, 4):
+    for b in itertools.islice(blobs, 0, None, 8):
       s = b.download_as_string()
       f = io.BytesIO(s)
       lum = Image.open(f)
@@ -140,12 +138,7 @@ class SiteManager(object):
     if not images:
       raise ValueError('no image {}'.format(self.page_name))
 
-    # Old PIL can only save to a real file, bot BytesIO, and appengine can only
-    # use TemporaryFile.
-    logging.error('Pillow version %s', Image.PILLOW_VERSION)
-    fd = tempfile.TemporaryFile(suffix='.gif')
-    images[0].save(fd, 'GIF', save_all=True, append_images=images[1:], duration=100, loop=0)
-    fd.seek(0)
-    s = fd.read()
-    fd.close()
-    return s
+    # Produce animated GIF.  Note that appengine has severe memory limitations.
+    f = io.BytesIO()
+    images[0].save(f, 'GIF', save_all=True, append_images=images[1:], duration=100, loop=0)
+    return f.getvalue()

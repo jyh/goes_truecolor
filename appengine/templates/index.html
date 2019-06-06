@@ -36,6 +36,9 @@
 <image class="Frame-{{i}}" xlink:href="{{ src }}" x=0 y=36 width="1024px" height="1024px" style="opacity:0;"/>
 {% endfor %}
 </svg>
+{% for i, t, src in blobs %}
+<img src="{{ src }}">
+{% endfor %}
     </p>
   </body>
 </html>
