@@ -1,6 +1,7 @@
 import datetime
 import flask
 import logging
+import re
 import urllib.parse
 
 from typing import Text
@@ -8,15 +9,26 @@ from typing import Text
 import site_manager
 
 
+DATE_REGEX = r'(\d+)-(\d+)-(\d+)'
+
 app = flask.Flask(__name__)
 
-@app.route('/')
-@app.route('/<int:year>/<int:month>/<int:day>/')
+@app.route('/', methods=['GET'])
+@app.route('/<int:year>/<int:month>/<int:day>/', methods=['GET'])
 def index(year: int = 2019, month: int = 1, day: int = 1) -> Text:
   t = datetime.datetime(year, month, day)
   name = t.strftime('/%Y/%m/%d/index.html')
   manager = site_manager.SiteManager(name)
   return flask.render_template('index.html', date=t, site_manager=manager)
+
+
+@app.route('/', methods=['POST'])
+@app.route('/<int:year>/<int:month>/<int:day>/', methods=['POST'])
+def change_date(year: int = 2019, month: int = 1, day: int = 1) -> Text:
+  date = flask.request.form['date']
+  m = re.match(DATE_REGEX, date)
+  t = datetime.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+  return flask.redirect(flask.url_for('index', year=t.year, month=t.month, day=t.day))
 
 
 @app.route('/cloud_masks/<int:year>/<int:day>/<string:filename>.jpg')

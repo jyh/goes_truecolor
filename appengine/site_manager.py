@@ -27,10 +27,11 @@ def _parse_date(s: Text) -> datetime.datetime:
   """Convert a filename to a datetime."""
   m = re.match(ISO_TIME_REGEX, s)
   if m:
+    ms = m.group(8)
     return datetime.datetime(
         int(m.group(1)), int(m.group(2)), int(m.group(3)),
         int(m.group(4)), int(m.group(5)), int(m.group(6)),
-        int(m.group(8)))
+        int(ms if ms else 0))
 
   m = re.match(FILE_TIME_REGEX, s)
   if m:

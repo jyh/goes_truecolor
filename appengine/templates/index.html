@@ -1,3 +1,8 @@
+{% set blobs = site_manager.list_blobs() %}
+{% set count = blobs|length %}
+{% if count %}
+   {% set _, t0, src0 = blobs[0] %}
+{% endif %}
 <!doctype html>
 <html>
   <head>
@@ -6,9 +11,41 @@
       .containerdiv { float: left; position: relative; width: 1024px; height: 1024px; }
       .cornerimage { position: absolute; top: 0; left: 0; border: 0; }
     </style>
+    <script>
+      var title, image, prevTime;
+      var stepIndex = 0;
+      var blobs = [
+      {% for _, t, src in blobs %}
+        [ "{{ t.strftime('%Y/%m/%d %H:%M:%S') }}", "{{ src }}" ],
+      {% endfor %}
+      ];
+      
+      function handleAnimate(currentTime) {
+        requestAnimationFrame(handleAnimate);
+        if (!prevTime) {
+          prevTime = currentTime;
+          return;
+        }
+        var dt = currentTime - prevTime;
+        if (dt < 100 || !image.complete) {
+          return;
+        }
+        prevTime = currentTime;
+
+	// Run one step of animation.
+	stepIndex = (stepIndex + 1) % {{ count }};
+	title.textContent = blobs[stepIndex][0];
+	image.src = blobs[stepIndex][1];
+      }
+      function init() {
+        title = document.getElementById("title");
+        image = document.getElementById("image");
+        requestAnimationFrame(handleAnimate);
+      }
+    </script>
   </head>
 
-  <body>
+  <body {% if count %} onload="init();" {% endif %}>
     <h1>GOES Truecolor for {{ date.strftime('%B %d, %Y') }} </h1>
     <p>
       Select a date:
@@ -17,28 +54,9 @@
       <input type="submit">
       </form>
     </p>
-    <p>
-{% set blobs = site_manager.list_blobs(count=24) %}
-{% set count = blobs|length %}
-<svg width="1024px" height="1074px">
-  <style>
-.heavy { font: normal 30px sans-serif; }
-@keyframes points {
-0% { opacity: 1; }
-{{100 / count}}% { opacity: 0; }
-}
-{% for i, _, _ in blobs %}
-.Frame-{{i}} { animation: points {{count}}s {{i}}s infinite normal step-end forwards; }
-{% endfor %}
-</style>
-{% for i, t, src in blobs %}
-<text class="heavy Frame-{{i}}" style="opacity:0;" x=10 y=30>{{ t.strftime('%Y/%m/%d %H:%M:%S') }}</text>
-<image class="Frame-{{i}}" xlink:href="{{ src }}" x=0 y=36 width="1024px" height="1024px" style="opacity:0;"/>
-{% endfor %}
-</svg>
-{% for i, t, src in blobs %}
-<img src="{{ src }}">
-{% endfor %}
-    </p>
+    {% if count %}
+      <h1><span id="title">{{ t0.strftime('%Y/%m/%d %H:%M:%S') }}</span></h1>
+      <p><img id="image" src="{{ src0 }}"></p>
+    {% endif %}
   </body>
 </html>
