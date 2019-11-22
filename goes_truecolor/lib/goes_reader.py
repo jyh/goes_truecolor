@@ -288,7 +288,7 @@ class GoesReader(object):  # pylint: disable=useless-object-inheritance
       logging.info('downloading %s', bid)
       blob.download_to_filename(infile)
       logging.info('downloaded %s', bid)
-      with xarray.open_dataset(infile) as nc:
+      with xarray.open_dataset(infile, engine='netcdf4') as nc:
         img = self._resample_image(nc)
         logging.info('resampled %s', bid)
         md = goes_metadata(nc)

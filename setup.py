@@ -112,6 +112,7 @@ REQUIRED_PACKAGES = [
     'google-api-core>=1.11',
     'google-cloud-core>=1',
     'google-cloud-storage>=1.16',
+    'h5py',
     'netcdf4',
     'numpy',
     'pyresample',

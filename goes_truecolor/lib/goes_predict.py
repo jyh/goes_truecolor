@@ -8,7 +8,7 @@ import os
 from typing import List, Text
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def _get_overlapping_tiles(
@@ -58,7 +58,7 @@ class GoesPredict():  # pylint: disable=too-few-public-methods
     dirnames = tf.gfile.Glob(os.path.join(model_dir, '[0-9]*'))
     model_file = sorted(dirnames)[-1]
     tf.logging.info('Loading model from %s', model_file)
-    self.model = tf.contrib.saved_model.load_keras_model(model_file)
+    self.model = tf.keras.experimental.load_from_saved_model(model_file)
     self.model.summary()
 
   def predict(self, raster_in_img: np.ndarray) -> np.ndarray:
