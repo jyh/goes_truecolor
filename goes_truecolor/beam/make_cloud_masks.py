@@ -41,7 +41,7 @@ flags.DEFINE_string(
     'Temporary files bucket')
 
 flags.DEFINE_string(
-    'model_dir', 'gs://weather-datasets/model/export/exporter',
+    'model_dir', 'gs://weather-datasets/model',
     'Directory containing the model')
 
 flags.DEFINE_string(
@@ -75,15 +75,64 @@ flags.DEFINE_integer(
     'tile_border_size', 8, 'tile border size to be cropped')
 
 flags.DEFINE_string(
-    'start_date', '1/1/2018 17:00',
+    'start_date', None,
     'Start date for collecting images')
 
 flags.DEFINE_string(
-    'end_date', '1/1/2018 17:00',
+    'end_date', None,
     'End date for collecting images (inclusive)')
 
 
 FLAGS = flags.FLAGS
+
+
+class ListFiles(beam.DoFn):
+  """List the files from the pubsub channel."""
+
+  def __init__(
+      self,
+      project_id: Text,
+      goes_bucket_name: Text,
+      image_size: int):
+    self.project_id = project_id
+    self.goes_bucket_name = goes_bucket_name
+    self.image_size = image_size
+    self.gcs_client = None
+    self.reader = None
+
+  def start_bundle(self):
+    # pylint: disable=reimported,redefined-outer-name
+    import io
+    import logging
+    import numpy as np
+    import os
+    from PIL import Image
+    from google.api_core import client_info
+    from google.cloud import storage as gcs
+    from goes_truecolor.lib import goes_predict
+    from goes_truecolor.lib import goes_reader
+
+    # Datastore client.
+    if self.gcs_client is None:
+      self.gcs_client = gcs.Client(project=self.project_id)
+
+    # Create the GoesReader lazily so that beam will not pickle it
+    # when copying this object to other workers.
+    if self.reader is None:
+      logging.info('creating GoesReader')
+      shape = self.image_size, self.image_size
+      self.reader = goes_reader.GoesReader(
+          project_id=self.project_id,
+          goes_bucket_name=self.goes_bucket_name, shape=shape,
+          tmp_dir=self.tmp_dir, client=self.gcs_client, cache=False)
+
+  def process(self, message: Text) -> Tuple[datetime.datetime, Dict[int, Text]]:
+    result = json.loads(message)
+    name = result['name']
+    logging.info('pubsub: %s', name)
+    f = goes_reader._parse_filename(name)
+    files = self.reader.list_files(f.start_date, f.start_date)
+    return files
 
 
 # pylint: disable=abstract-method,too-many-instance-attributes
@@ -132,9 +181,7 @@ class CreateCloudMasks(beam.DoFn):
     self.gcs_client = gcs_client
     self.model = None
 
-  # pylint: disable=arguments-differ,too-many-locals
-  def process(
-      self, files: Tuple[datetime.datetime, Dict[int, Text]]) -> Generator[Text, None, None]:
+  def start_bundle(self):
     # pylint: disable=reimported,redefined-outer-name
     import io
     import logging
@@ -146,7 +193,9 @@ class CreateCloudMasks(beam.DoFn):
     from goes_truecolor.lib import goes_predict
     from goes_truecolor.lib import goes_reader
 
-    _, file_table = files
+    # Datastore client.
+    if self.gcs_client is None:
+      self.gcs_client = gcs.Client(project=self.project_id)
 
     # Create the GoesReader lazily so that beam will not pickle it
     # when copying this object to other workers.
@@ -163,15 +212,35 @@ class CreateCloudMasks(beam.DoFn):
       self.model = goes_predict.GoesPredict(
           self.model_dir, self.tile_size, self.tile_border_size)
 
-    # Datastore client.
-    if self.gcs_client is None:
-      self.gcs_client = gcs.Client(project=self.project_id)
+  # pylint: disable=arguments-differ,too-many-locals
+  def process(
+      self, files: Tuple[datetime.datetime, Dict[int, Text]]) -> Generator[Text, None, None]:
+    # pylint: disable=reimported,redefined-outer-name
+    import io
+    import logging
+    import numpy as np
+    import os
+    from PIL import Image
+    from google.api_core import client_info
+    from google.cloud import storage as gcs
+    from goes_truecolor.lib import goes_predict
+    from goes_truecolor.lib import goes_reader
+
+    t_start, file_table = files
+
+    filename = os.path.join(self.output_dir, t_start.strftime('%Y/%j/%Y%m%d_%H%M_%f.jpg'))
+    logging.info('creating cloud mask: %s', filename)
+    bucket = self.gcs_client.get_bucket(self.output_bucket)
+    blob = bucket.blob(filename)
+    if blob.exists():
+      logging.info('%s: already exists, skipping', filename)
+      return
 
     # Fetch the images and perform the prediction.
-    logging.info('creating IR image')
     ir = self.reader.load_channel_images_from_files(file_table, self.ir_channels)
     ir_img, md = goes_reader.flatten_channel_images(ir, self.ir_channels)
     if 'time_coverage_start' not in md:
+      logging.error('no time_coverage_start for %s', t_start)
       return
     cloud_img = self.model.predict(ir_img)
 
@@ -184,50 +253,63 @@ class CreateCloudMasks(beam.DoFn):
     # Write to a file.
     t = md['time_coverage_start']
     filename = os.path.join(self.output_dir, t.strftime('%Y/%j/%Y%m%d_%H%M_%f.jpg'))
-    bucket = self.gcs_client.get_bucket(self.output_bucket)
+    logging.info('writing to %s', filename)
     blob = bucket.blob(filename)
     blob.upload_from_string(buf)
+    logging.info('wrote to %s', filename)
     yield filename
 
 
 def main(unused_argv):
   """Beam pipeline to create examples."""
   # Get the files to process.
-  utc = dateutil.tz.tzutc()
-  start_date = dateparser.parse(FLAGS.start_date)
-  start_date = start_date.replace(tzinfo=utc)
-  end_date = dateparser.parse(FLAGS.end_date)
-  end_date = end_date.replace(tzinfo=utc)
-  reader = goes_reader.GoesReader(
-      project_id=FLAGS.project,
-      goes_bucket_name=FLAGS.goes_bucket,
-      shape=(FLAGS.image_size, FLAGS.image_size))
-  files = reader.list_time_range(start_date, end_date)
+  if FLAGS.start_date and FLAGS.end_date:
+    utc = dateutil.tz.tzutc()
+    start_date = dateparser.parse(FLAGS.start_date)
+    start_date = start_date.replace(tzinfo=utc)
+    end_date = dateparser.parse(FLAGS.end_date)
+    end_date = end_date.replace(tzinfo=utc)
+    reader = goes_reader.GoesReader(
+        project_id=FLAGS.project,
+        goes_bucket_name=FLAGS.goes_bucket,
+        shape=(FLAGS.image_size, FLAGS.image_size))
+    files = reader.list_time_range(start_date, end_date)
+  else:
+    files = None
 
   # Create the beam pipeline.
-  options = {'staging_location': os.path.join(FLAGS.tmp_dir, 'tmp', 'staging'),
+  options = {'author': 'Jason Hickey',
+             'author_email': 'jason@karyk.com',
+             'region': 'us-central1',
+             'staging_location': os.path.join(FLAGS.tmp_dir, 'tmp', 'staging'),
              'temp_location': os.path.join(FLAGS.tmp_dir, 'tmp'),
              'job_name': datetime.datetime.now().strftime('cloud-masks-%y%m%d-%H%M%S'),
              'project': FLAGS.project,
-             'num_workers': 1,
+             'num_workers': 10,
              'max_num_workers': FLAGS.max_workers,
              'machine_type': 'n1-standard-4',
              'setup_file': os.path.join(
                  os.path.dirname(os.path.abspath(__file__)), '../../setup.py'),
              'teardown_policy': 'TEARDOWN_ALWAYS',
-             'save_main_session': False}
+             'save_main_session': False,
+             'streaming': True,
+  }
   opts = beam.pipeline.PipelineOptions(flags=[], **options)
 
   # Run the beam pipeline.
-  # with beam.Pipeline(FLAGS.runner, options=opts) as p:
-  #   (p  # pylint: disable=expression-not-assigned
-  #    | beam.io.ReadFromPubSub( 'projects/gcp-public-data---goes-16/topics/gcp-public-data-goes-16')
-  #    | beam.FlatMap(lambda s: print(s)))
-
-  # Run the beam pipeline.
   with beam.Pipeline(FLAGS.runner, options=opts) as p:
-    (p  # pylint: disable=expression-not-assigned
-     | beam.Create(files)
+    if files:
+      p = p | beam.Create(files)
+    else:
+      p = (p
+           | beam.io.gcp.pubsub.ReadFromPubSub(
+               subscription='projects/weather-324/subscriptions/goes-16')
+           | beam.ParDo(ListFiles(
+               project_id=FLAGS.project,
+               goes_bucket_name=FLAGS.goes_bucket,
+               image_size=FLAGS.image_size)))
+
+    (p
      | beam.ParDo(CreateCloudMasks(
          project_id=FLAGS.project,
          goes_bucket_name=FLAGS.goes_bucket,

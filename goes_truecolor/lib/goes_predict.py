@@ -7,6 +7,7 @@ import os
 
 from typing import List, Text
 
+import logging
 import numpy as np
 import tensorflow as tf
 
@@ -55,10 +56,10 @@ class GoesPredict():  # pylint: disable=too-few-public-methods
     self.tile_border_size = tile_border_size
 
     # Load the model.
-    dirnames = tf.gfile.Glob(os.path.join(model_dir, '[0-9]*'))
+    dirnames = tf.io.gfile.glob(os.path.join(model_dir, '[0-9]*'))
     model_file = sorted(dirnames)[-1]
-    tf.logging.info('Loading model from %s', model_file)
-    self.model = tf.contrib.saved_model.load_keras_model(model_file)
+    logging.info('Loading model from %s', model_file)
+    self.model = tf.keras.models.load_model(model_file)
     self.model.summary()
 
   def predict(self, raster_in_img: np.ndarray) -> np.ndarray:

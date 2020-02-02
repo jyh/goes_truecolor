@@ -112,6 +112,7 @@ REQUIRED_PACKAGES = [
     'google-api-core>=1.11',
     'google-cloud-core>=1',
     'google-cloud-storage>=1.16',
+    'h5netcdf',
     'netcdf4',
     'numpy',
     'pyresample',
@@ -123,6 +124,9 @@ REQUIRED_PACKAGES = [
 setuptools.setup(
     name='truecolor',
     version='0.0.1',
+    author='Jason Hickey',
+    author_email='jason@karyk.com',
+    url='https://jasonhickey.org',
     description='Extract truecolor GOES images, day or night.',
     install_requires=REQUIRED_PACKAGES,
     packages=setuptools.find_packages(),
