@@ -1,0 +1,12 @@
+absl-py
+apache_beam[gcp]
+dateparser
+h5py
+h5netcdf
+netCDF4
+tensorflow
+google-cloud-storage
+pyresample
+xarray
+google-resumable-media==0.5.0
+scikit-image

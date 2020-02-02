@@ -8,6 +8,8 @@ import tempfile
 
 import numpy as np
 from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
 
 from typing import Optional, List, Text, Tuple
 
@@ -20,7 +22,7 @@ FILE_TIME_REGEX = r'.*/(\d\d\d\d)(\d\d)(\d\d)_(\d\d)(\d\d)_(\d+)[.]jpg'
 
 # AppEngine has pretty severe memory restrictions, so limit the number of frames to
 # add to an animated gif.
-ANIMATED_GIF_MAX_FRAMES = 12
+ANIMATED_GIF_MAX_FRAMES = 100
 
 
 def _parse_date(s: Text) -> datetime.datetime:
@@ -143,6 +145,9 @@ class SiteManager():
     if n > ANIMATED_GIF_MAX_FRAMES:
       blobs = [blobs[(i * n) // ANIMATED_GIF_MAX_FRAMES] for i in range(ANIMATED_GIF_MAX_FRAMES)]
 
+    # Date labels
+    font = ImageFont.truetype("arial.ttf", 50)
+
     # Image compositing.
     images = []
     for b in blobs:
@@ -155,7 +160,14 @@ class SiteManager():
       mask = 1 / (1 + np.exp(-10 * (lum - 0.3)))
       img = lum * mask + (1 - mask) * world_img
       img = (img * 255).astype(np.uint8)
+      img = np.pad(img, ((50, 0), (0, 0), (0, 0)))
       img = Image.fromarray(img)
+
+      # Add the date
+      t = _parse_date(b.name)
+      draw = ImageDraw.Draw(img)
+      draw.text((0, 0), t.strftime('GOES 16 %Y/%m/%d %H:%M'), font=font)
+
       images.append(img)
     if not images:
       raise ValueError('no image {}'.format(self.page_name))
