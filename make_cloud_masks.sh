@@ -1,5 +1,10 @@
 #!/bin/bash
 
+set -e
+
+export PATH="/home/jyh/anaconda3/bin:$PATH"
+export GOOGLE_APPLICATION_CREDENTIALS=/home/jyh/.credentials/weather-324-586457f473f8.json
+
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
 __conda_setup="$('/home/jyh/anaconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
@@ -16,8 +21,14 @@ unset __conda_setup
 
 # <<< conda initialize <<<
 
-conda activate create_cloud_masks
+source activate create_cloud_masks
 
 cd "${HOME}/projects/goes_truecolor"
 
-/usr/bin/flock -n make_cloud_masks.lock make run_cloud_masks_local
+START_DATE="$(date --utc --date="7 days ago")" 
+END_DATE="$(date --utc --date=tomorrow)"
+
+/usr/bin/flock -n make_cloud_masks.lock \
+	python -m goes_truecolor.beam.make_cloud_masks \
+	--start_date="${START_DATE}" \
+	--end_date="${END_DATE}"

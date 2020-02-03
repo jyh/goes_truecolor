@@ -32,7 +32,7 @@ run_truecolor_dataflow:
 
 run_cloud_masks_local:
 	python -m goes_truecolor.beam.make_cloud_masks \
-		--start_date="1/30/2020 00:00" \
+		--start_date="`date --utc --date='7 days ago'`" \
 		--end_date="`date --utc`"
 
 run_cloud_masks_dataflow:
