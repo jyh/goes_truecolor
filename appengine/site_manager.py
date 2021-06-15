@@ -22,7 +22,7 @@ FILE_TIME_REGEX = r'.*/(\d\d\d\d)(\d\d)(\d\d)_(\d\d)(\d\d)_(\d+)[.]jpg'
 
 # AppEngine has pretty severe memory restrictions, so limit the number of frames to
 # add to an animated gif.
-ANIMATED_GIF_MAX_FRAMES = 100
+ANIMATED_GIF_MAX_FRAMES = 200
 
 
 def _parse_date(s: Text) -> datetime.datetime:

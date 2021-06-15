@@ -1,5 +1,3 @@
-#!/bin/bash
+#!/bin/sh
 
-export GCLOUD_PROJECT=weather-324
-
-gunicorn main:app
+gunicorn --timeout=300 main:app
